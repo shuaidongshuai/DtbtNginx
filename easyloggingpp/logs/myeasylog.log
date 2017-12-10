@@ -1,0 +1,10 @@
+2017-11-29 19:55:25,262 TRACE [default] ***** trace log  *****
+2017-11-29 19:55:25,264 DEBUG [default] ***** debug log  *****
+2017-11-29 19:55:25,264 ERROR [default] ***** error log  *****
+2017-11-29 19:55:25,265 WARNING [default] ***** warning log  *****
+2017-11-29 19:55:25,266 INFO [default] ***** info log  *****
+2017-11-29 19:57:02,500 TRACE [default] ***** trace log  *****
+2017-11-29 19:57:02,501 DEBUG [default] ***** debug log  *****
+2017-11-29 19:57:02,502 ERROR [default] ***** error log  *****
+2017-11-29 19:57:02,503 WARNING [default] ***** warning log  *****
+2017-11-29 19:57:02,505 INFO [default] ***** info log  *****

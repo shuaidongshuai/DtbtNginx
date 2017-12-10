@@ -1,0 +1,46 @@
+syntax = "proto2";
+//package inNginx;
+
+//ip port
+message HostName {
+	required string ip = 1;
+	required uint32 port = 2;
+}
+
+//投票
+message Vote {
+	required uint32 version = 1;//版本号
+	required string nginxName = 2;//ip + " " + port
+}
+//响应投票1
+message AckVote2Leader {
+	required uint32 version = 1;
+	required string nginxName = 2;
+}
+//响应投票2
+message AckVote2Follower {
+	required uint32 version = 1;
+	required string nginxName = 2;
+}
+
+//数据同步
+message SynchData {
+	required uint32 version = 1;//版本号
+	repeated string sernames = 2;//后台服务器ip port
+}
+//数据同步2
+message AckData2Leader {
+}
+//数据同步3
+message AckData2Follower {
+}
+
+//心跳
+message KeepAlive {
+}
+
+//服务器发回来的响应
+message Server2Nginx {
+	required uint32 port = 1;//要返回给的client fd
+	required string text = 2;//内容
+}
