@@ -25,6 +25,7 @@ using namespace std;
 
 enum STATU{FOLLOWER, CANDIDATE, LEADER};//追随者，候选者，领导者
 enum {ENSURE, SUBMIT};
+enum {WEB, LOAD};
 /*
 使用进程池的心得：
 铁了心想用进程池，但是有很多数据需要共享，没办法必须mmap数据到共享区(再仔细想就算不共享也没啥，还节省了锁的开销)
@@ -64,6 +65,7 @@ public:
 	int lisSerfd;
 	int lisClifd;
 	int version[2];//[0]已经确认的版本 [1]提交但未确认的版本
+	int nginxMode;//两种模式 0.web服务器 1.负载均衡  将来可能有更多模式
 
 	/* client and server communicate data */
 	vector<string> backServers[2];//后台活着的服务器ip port(属于需要同步的数据) [0]已经确认[1]提交单位确认
@@ -73,6 +75,7 @@ public:
 	Nginx *nginxs;//因为需要给其他节点发送消息，所以得保存起始地址
 	map<string, int> mSerNamefd;//记录服务器的name->fd
 	map<int, string> mSerfdName;//活着的server fd
+
 	/* const data */
 	const size_t raftVoteTime = 150;
 protected:

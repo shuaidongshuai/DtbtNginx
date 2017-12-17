@@ -14,5 +14,5 @@ enum inNginxNum{
 	SerConNo,				//	SerCon
 	CliConNo,				//	CliCon
 
-	Server2NginxNo,			//	ServerRcve
+	// Server2NginxNo,			//	ServerRcve
 };

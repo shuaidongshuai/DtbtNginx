@@ -272,7 +272,6 @@ void Processpool::runChild() {
             		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
             	}
 				else if(nginxs[sockfd].ReadProto()){
-					nginxs[sockfd].readIdx = 0;
 				}
 			}
 			/* 接收到信号 */
@@ -315,42 +314,57 @@ void Processpool::runChild() {
 			else if(!dbNginx->mSerfdName[sockfd].empty() && events[i].events & EPOLLIN){
 				if(nginxs[sockfd].sockfd == -1){
             		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
+            		continue;
             	}
-				else if(nginxs[sockfd].ReadProto()){
-					nginxs[sockfd].readIdx = 0;
-				}
+				
 			}
-			/*客服端请求来到*/
+			/* 客服端请求来到 */
 			else if( events[i].events & EPOLLIN ) {
 				if(nginxs[sockfd].sockfd == -1) {
             		LOG(ERROR) << "write sockfd had close fd=" << sockfd;
+            		continue;
             	}
 				//先读完请求
-				if(nginxs[sockfd].Read()){
-					readSize = nginxs[sockfd].readIdx;
-					nginxs[sockfd].readIdx = 0;
-				}
-				else{
-					// 没有读完
+				if(!nginxs[sockfd].ReadHttp()){
+					nginxs[serverfd].Addfd2Read();
 					continue;
 				}
-				/* 采用 Consistent Hash 算法分配给子进程 */
-				string SerName = dbNginx->csshash->getServerName(nginxs[sockfd].clientName);
-				int serverfd = dbNginx->mSerNamefd[SerName];
-				//如果不存在需要主动和Server建立连接--waiting for you
-				if(serverfd <= 0){
-					LOG(ERROR) << "server dont alive : " << SerName;
+				int readSize = nginxs[sockfd].readIdx;
+				nginxs[sockfd].readIdx = 0;
+
+				if(dbNginx->nginxMode == WEB){
+					/* 准备写入的内容 */
+		   			bool write_ret = WriteHttpHeader( read_ret );//缓存响应头部
+				    if ( ! write_ret ) {
+				        CloseSocket();
+				    }
+				    /* 正真的写回 client */
+				    if(WriteHttpResponse()){
+				    	nginxs[sockfd].Addfd2Read();
+				    }
+				    else{
+				    	nginxs[sockfd].Addfd2Write();
+				    }
 				}
-				else{
-					//发给服务器
-					string data = string(nginxs[serverfd].readBuf, readSize);
-                	if(nginxs[serverfd].WriteWithoutProto(data)) {
-                		//如果已经写完了 那么重新监听read
-                		nginxs[serverfd].Addfd2Read();
-               		}
-               		else{
-               			nginxs[serverfd].Addfd2Write();
-               		}
+				else {
+					/* 采用 Consistent Hash 算法分配给子进程 */
+					string SerName = dbNginx->csshash->getServerName(nginxs[sockfd].clientName);
+					int serverfd = dbNginx->mSerNamefd[SerName];
+					//如果不存在需要主动和Server建立连接--waiting for you
+					if(serverfd <= 0){
+						LOG(ERROR) << "server dont alive : " << SerName;
+					}
+					else{
+						//发给服务器
+						string data = string(nginxs[serverfd].readBuf, readSize);
+	                	if(nginxs[serverfd].WriteWithoutProto(data)) {
+	                		//如果已经写完了 那么重新监听read
+	                		nginxs[serverfd].Addfd2Read();
+	               		}
+	               		else{
+	               			nginxs[serverfd].Addfd2Write();
+	               		}
+					}
 				}
 			}
 		}
@@ -543,8 +557,6 @@ void Processpool::runParent() {
 	            		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
 	            	}
 					else if(nginxs[sockfd].ReadProto()){
-						//数据读完 或者 close 读指针置0
-						nginxs[sockfd].readIdx = 0;
 					}
 	            }
 			}

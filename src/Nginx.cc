@@ -4,8 +4,9 @@
 #include "inNginx.pb.h"
 #include "easylogging++.h"
 #include "Singleton.h"
-#include <ctime>
 #include "ConsistentHash.h"
+#include <sys/sendfile.h>
+#include <ctime>
 
 /* 默认et模式 */
 Nginx::Nginx(size_t readBufSize, size_t writeBufSize)
@@ -29,7 +30,7 @@ Nginx::Nginx(size_t readBufSize, size_t writeBufSize)
 	callBack[SerConNo] = &Nginx::SerCon;
 	callBack[CliConNo] = &Nginx::CliCon;
 
-	callBack[Server2NginxNo] = &Nginx::Server2NginxRcve;
+	// callBack[Server2NginxNo] = &Nginx::Server2NginxRcve;
 }
 
 Nginx::~Nginx(){
@@ -43,11 +44,10 @@ void Nginx::SetReadBuf(int size){
 	readBufSize = size;
 	delete temp;
 }
-/* 普通的读 */
 bool Nginx::Read(){
 	lastActive = time(0);//记录活跃的时间
 	int nread = 0;
-	while(readIdx < 2 * sizeof(int)){
+	while(1){
 		nread = read(sockfd, readBuf + readIdx, 2 * sizeof(int) - readIdx);
 		if (nread == -1) {
 			if(errno == EAGAIN){
@@ -65,6 +65,418 @@ bool Nginx::Read(){
 		readIdx += nread;
 	}
 	return true;
+}
+/* 读http请求 true代表解析完一个请求 */
+bool Nginx::ReadHttp(){
+	lastActive = time(0);//记录活跃的时间
+	int nread = 0;
+	int maxRead = MAXHTTPREQUEST;
+	while(readIdx < maxRead){
+		nread = read(sockfd, readBuf + readIdx, 2 * sizeof(int) - readIdx);
+		if (nread == -1) {
+			if(errno == EAGAIN){
+				return false;
+			}
+			LOG(INFO) << "客服端异常退出";
+			CloseSocket();
+			return true;
+		}
+		if(nread == 0) {
+			LOG(INFO) << "客服端正常退出";
+			CloseSocket();
+			return true;
+		}
+		readIdx += nread;
+		/* 读一次就解析一次 */
+		HTTP_CODE read_ret = ParseRequest();
+	    if ( read_ret != NO_REQUEST ) {
+	    	return true;
+	    }
+	}
+	if(readIdx > MAXHTTPREQUEST){
+		CloseSocket(sockfd);
+	}
+	return true;
+}
+/* 解析http request */
+HTTP_CODE Nginx::ParseRequest(){
+	LINE_STATUS line_status = LINE_OK;//读取状态
+    HTTP_CODE ret = NO_REQUEST;		//占时请求状态设置为不完整
+    char* text = 0;
+
+	/*下面就是限状态机编程方法*/
+    while ( ( ( checkState == CHECK_STATE_CONTENT ) && ( line_status == LINE_OK  ) )//主状态机：正在分析请求内容。从状态机：读到完整行
+                || ( ( line_status = ParseBlankLine() ) == LINE_OK ) )//从状态机读到\r\n
+    /* 要么读到\r\n 要么状态是请求体 */
+    {
+        text = readBuf + startLine;
+        startLine = checkedIdx;
+
+        switch ( checkState ) {
+			/*解析请求消息行*/
+            case CHECK_STATE_REQUESTLINE:
+            {
+                ret = ParseRequestLine( text );
+                if ( ret == BAD_REQUEST ) {
+                    return BAD_REQUEST;
+                }
+                break;
+            }
+			/*解析请求消息头*/
+            case CHECK_STATE_HEADER:
+            {
+                ret = ParseRequestHeader( text );
+                if ( ret == BAD_REQUEST ) {
+                    return BAD_REQUEST;
+                }
+                else if ( ret == GET_REQUEST ) {
+                    return do_request();
+                }
+                break;
+            }
+			/*解析请求消息体*/
+            case CHECK_STATE_CONTENT:
+            {
+                ret = ParseRequestContent( text );
+                if ( ret == GET_REQUEST ) {
+                    return DoRequest();
+                }
+                line_status = LINE_OPEN;
+                break;
+            }
+            default:
+            {
+                return INTERNAL_ERROR;
+            }
+        }
+    }
+    return NO_REQUEST;
+}
+/*解析请求消息行*/
+HTTP_CODE ParseRequestLine(char *text) {
+	char *temp = strpbrk( text, " \t" );
+    if ( ! temp ) {
+        return BAD_REQUEST;
+    }
+    char* method = text;
+    if ( strcasecmp( method, "GET" ) == 0 ) {
+    	//占时只支持get请求
+        httpMethod = GET;
+    }
+    else {
+		LOG(INFO) << "不支持:" << method << " 请求";
+        return BAD_REQUEST;
+    }
+	*temp++ = '\0';
+    temp += strspn( temp, " \t" );
+    httpVer = strpbrk( temp, " \t" );
+    if ( ! httpVer ) {
+        return BAD_REQUEST;
+    }
+    *httpVer++ = '\0';
+    httpVer += strspn( httpVer, " \t" );
+    if ( strcasecmp( httpVer, "HTTP/1.1" ) != 0 && strcasecmp( httpVer, "HTTP/1.0" ) != 0) {
+    	LOG(INFO) << "不支持:" << httpVer << " http 版本";
+        return BAD_REQUEST;
+    }
+
+    if ( strncasecmp( temp, "http://", 7 ) == 0 ) {
+        temp += 7;
+        temp = strchr( temp, '/' );
+    }
+    else if( strncasecmp( temp, "https://", 8 ) == 0 ){
+    	temp += 8;
+        temp = strchr( temp, '/' );
+    }
+
+    if ( ! temp || temp[ 0 ] != '/' ) {
+        return BAD_REQUEST;
+    }
+	++temp;//这样可以去掉 /
+
+	//temp后面的就是文件名了 再后面是 \0\0
+	fileName = httpFileRoot;
+	fileName += temp;
+
+	//判断需不需要重定位--因为文件的传输不用当前服务器
+	//if(strstr(temp, ".exe") || strstr(temp, ".pdf"))
+	
+    checkState = CHECK_STATE_HEADER;
+    return NO_REQUEST;
+}
+/* 请求消息头-只解析必出现的几个头 */
+HTTP_CODE ParseRequestHeader(char *text){
+	if( text[ 0 ] == '\0' ) {
+        if ( httpMethod == HEAD ) {
+            return GET_REQUEST;
+        }
+
+        if ( contentLength != 0 ) {
+            checkState = CHECK_STATE_CONTENT;
+            return NO_REQUEST;
+        }
+        return GET_REQUEST;
+    }
+    else if ( strncasecmp( text, "Connection:", 11 ) == 0 ) {
+        text += 11;
+        text += strspn( text, " \t" );
+        if ( strcasecmp( text, "keep-alive" ) == 0 ) {
+            keepLinger = true;
+        }
+    }
+    else if ( strncasecmp( text, "Content-Length:", 15 ) == 0 ) {
+        text += 15;
+        text += strspn( text, " \t" );
+        contentLength = atol( text );
+    }
+    else if ( strncasecmp( text, "Host:", 5 ) == 0 )
+    {
+        text += 5;
+        text += strspn( text, " \t" );
+        httpHost = text;
+    }
+    else {
+        // LOG(DEBUG) << "未识别的行:" << text;
+    }
+    return NO_REQUEST;//请求不完整
+}
+/* 消息体 */
+HTTP_CODE ParseRequestContent(char *text){
+	/* 已经读到数据 >= 请求消息体长度 + 已经解析的长度 (消息体是不需要解析的) */
+    if ( readIdx >= ( contentLength + checkedIdx ) ) {
+        text[ contentLength ] = '\0';
+        return GET_REQUEST;
+    }
+	/*数据不完整还需要读*/
+    return NO_REQUEST;
+}
+
+LINE_STATUS ParseBlankLine(){
+	char temp;
+    for ( ; checkedIdx < readIdx; ++checkedIdx ) {
+        temp = readBuf[ checkedIdx ];
+        if ( temp == '\r' ) {
+            if ( checkedIdx + 1 > readIdx ) {
+                return LINE_OPEN;//数据不完整（有可能下一次读取能读到一个'\n'）
+            }
+			/* 如果是以 \r\n 结尾说明读到了完整行 */
+            else if ( readBuf[ checkedIdx + 1 ] == '\n' ) {
+                readBuf[ checkedIdx++ ] = '\0';
+                readBuf[ checkedIdx++ ] = '\0';
+                return LINE_OK;
+            }
+			/* 除此之外都是行出错 */
+            return LINE_BAD;
+        }
+		/* 正如上面那样，有可能这一次读到的就是'\n' */
+        else if( temp == '\n' ) {
+            if( ( checkedIdx > 1 ) && ( readBuf[ checkedIdx - 1 ] == '\r' ) ) {
+                readBuf[ checkedIdx - 1 ] = '\0';
+                readBuf[ checkedIdx++ ] = '\0';
+                return LINE_OK;
+            }
+            return LINE_BAD;
+        }
+    }
+	/* 如果解析到现在还没有\r\n 说明数据还不完整 */
+    return LINE_OPEN;
+}
+
+HTTP_CODE DoRequest(){
+	//提供文件名字，获取文件对应属性。
+    if ( stat( fileName.c_str(), &fileStat ) < 0 ) {
+    	LOG(DEBUG) << "资源不存在";
+        return NO_RESOURCE;//没有资源
+    }
+    //文件对应的模式，文件，目录    S_IROTH  其他用户具可读取权限
+    if ( ! ( fileStat.st_mode & S_IROTH ) ) {
+    	LOG(DEBUG) << "客户端对资源没有足够的访问权限";
+        return FORBIDDEN_REQUEST;
+    }
+    //是否为目录
+    if ( S_ISDIR( fileStat.st_mode ) ) {
+    	LOG(DEBUG) << "访问的是目录";
+        return BAD_REQUEST;
+    }
+
+    int fd = open( fileName.c_str(), O_RDONLY );
+    if(fd < 0) {
+    	LOG(INFO) << "open:" << fileName << " error";
+    }
+
+    LOG(DEBUG) << "请求的文件大小：" << fileStat.st_size;
+    return FILE_REQUEST;
+}
+
+bool Nginx::WriteHttpResponse(){
+	/* 先写头信息 */
+	int n;
+	while (1){
+		n = write(sockfd, writeBuf + writeIdx, writeLen - writeIdx);
+		if ( n <= -1 ) {
+			if( errno == EAGAIN ) {
+				LOG(DEBUG) << "当前不可写，继续监听写事件";
+				return false;
+			}
+			LOG(INFO) << "发送失败";
+			return true;
+		}
+		writeIdx += n;
+		if(writeIdx == writeLen){
+			break;
+		}
+		else if(writeIdx >  writeLen){
+			LOG(WARNING) << "WriteHttpResponse writeIdx >  writeLen " << writeIdx - writeLen;
+			return true;
+		}
+	}
+	/* 然后写文件 - 我直接用sendfile发送 - 将来如果性能差 - 改为保存到内存 */
+	int fd = open(fileName.c_str(), O_RDONLY);
+	if(-1 == fd) {
+		LOG(WARNING) << "WriteHttpResponse open " << fileName << " error";
+		return true;
+	}
+	writeLen += fileStat.st_size;
+	while (1){
+		// ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
+		n = sendfile(sockfd, fd, writeBuf + writeIdx, writeLen - writeIdx);
+		if ( n <= -1 ) {
+			if( errno == EAGAIN ) {
+				LOG(DEBUG) << "当前不可写，继续监听写事件";
+				return false;
+			}
+			LOG(INFO) << "发送失败";
+			return true;
+		}
+		writeIdx += n;
+		if(writeIdx == writeLen){
+			break;
+		}
+		else if(writeIdx >  writeLen){
+			LOG(WARNING) << "WriteHttpResponse writeIdx >  writeLen " << writeIdx - writeLen;
+			return true;
+		}
+	}
+	writeLen = 0;
+	writeIdx = 0;
+	close(fd);
+	//LOG(DEBUG) << "写:" << writeBuf << "-" << writeLen << "字节";
+	return true;
+}
+
+//写响应 行 头 体
+bool Nginx::WriteHttpHeader(HTTP_CODE ret){
+	//修改写指针
+	writeIdx = 0;
+	writeLen = 0;
+	switch ( ret )
+    {
+        case INTERNAL_ERROR:
+        {
+            AddStatusLine( 500, error_500_title );
+            AddHeaders( strlen( error_500_form ) );
+            if ( ! AddContent( error_500_form ) ) {
+                return false;
+            }
+            break;
+        }
+        case BAD_REQUEST:
+        {
+            AddStatusLine( 400, error_400_title );
+            AddHeaders( strlen( error_400_form ) );
+            if ( ! AddContent( error_400_form ) ) {
+                return false;
+            }
+            break;
+        }
+        case NO_RESOURCE:
+        {
+            AddStatusLine( 404, error_404_title );
+            AddHeaders( strlen( error_404_form ) );
+            if ( ! AddContent( error_404_form ) ) {
+                return false;
+            }
+            break;
+        }
+        case FORBIDDEN_REQUEST:
+        {
+            AddStatusLine( 403, error_403_title );
+            AddHeaders( strlen( error_403_form ) );
+            if ( ! AddContent( error_403_form ) ) {
+                return false;
+            }
+            break;
+        }
+        case FILE_REQUEST:
+        {
+            AddStatusLine( 200, ok_200_title );
+            if ( m_file_stat.st_size != 0 ) {
+                AddHeaders( m_file_stat.st_size );
+                return true;
+            }
+            else
+            {
+                const char* ok_string = "<html><body><p>帅东</p></body></html>";
+                AddHeaders( strlen( ok_string ) );
+                if ( ! AddContent( ok_string ) )
+                {
+                    return false;
+                }
+            }
+        }
+        default:
+        {
+            return false;
+        }
+    }
+    return true;
+}
+bool Nginx::AddResponse( const char* format, ... ) {
+    if( writeLen >= writeBufSize ) {
+        return false;
+    }
+    va_list arg_list;
+    va_start( arg_list, format );
+    int len = vsnprintf( writeBuf + writeLen, writeBufSize - 1 - writeLen, format, arg_list );
+    if( len >= ( writeBufSize - 1 - writeLen ) ) {
+        return false;
+    }
+    writeLen += len;
+    va_end( arg_list );
+    return true;
+}
+//添加请求消息行
+bool Nginx::AddStatusLine( int status, const char* title ) {
+    return AddResponse( "%s %d %s\r\n", "HTTP/1.1", status, title );
+}
+//添加请求消息头
+bool Nginx::AddHeaders( int content_len, const char *location) {
+    AddContentLength( content_len );
+    AddLinger();
+	//支持重定向技术
+	if(location)
+		AddLocation(location);
+    AddBlankLine();
+}
+//内容长度
+bool Nginx::AddContentLength( int content_len ) {
+    return AddResponse( "Content-Length: %d\r\n", content_len );
+}
+//keep-alive
+bool Nginx::AddLinger() {
+    return AddResponse( "Connection: %s\r\n", ( keepLinger == true ) ? "keep-alive" : "close" );
+}
+//重定向
+bool Nginx::AddLocation(const char *otherUrl) {
+	return AddResponse( "Location: %s\r\n", otherUrl );
+}
+//添加空行
+bool Nginx::AddBlankLine() {
+    return AddResponse( "%s", "\r\n" );
+}
+//添加请求正文(用于错误响应)
+bool Nginx::AddContent( const char* content ) {
+    return AddResponse( "%s", content );
 }
 /*
 所有数据都是 cmd+len+protobuf  要按照这个来读 cmd 和 len 都是 int
@@ -128,6 +540,7 @@ bool Nginx::ReadProto(){
 		//数据读完 读指针置0
 		readIdx = 0;
 	}
+	readIdx = 0;
 	return true;
 }
 /* 还需要监听就返回false */
@@ -144,12 +557,18 @@ bool Nginx::Write(){
 			return true;
 		}
 		writeIdx += n;
-		if(writeIdx >= writeLen){
+		if(writeIdx == writeLen){
 			// 写完了要监听读事件
 			Addfd2Read();
 			break;
 		}
+		else if(writeIdx >  writeLen){
+			LOG(WARNING) << "Write writeIdx >  writeLen " << writeIdx - writeLen;
+			return true;
+		}
 	}
+	writeLen = 0;
+	writeIdx = 0;
 	//LOG(DEBUG) << "写:" << writeBuf << "-" << writeLen << "字节";
 	return true;
 }
@@ -453,31 +872,6 @@ void Nginx::CliCon(char *proto){
 		Addfd2Read();
 	}
     LOG(DEBUG) << "server request to child " << i;
-}
-
-void Nginx::Server2NginxRcve(char *proto){
-	if(!proto){
-		LOG(ERROR) << "AckVote2LeaderRcve nullptr";
-		return;
-	}
-	int len = readIdx - 2 * sizeof(int);
-	if(len < 0){
-		LOG(ERROR) << "VoteRcve len < 0";
-		return;
-	}
-	string data(proto, len);
-	Server2Nginx s2n;
-	bool parseRes = s2n.ParseFromString(data);
-	if(!parseRes){
-		LOG(ERROR) << "AckVote2LeaderRcve parseRes is false";
-		return;
-	}
-	int ver = s2n.port();
-	string nginxName = s2n.text();
-	
-
-
-
 }
 
 int Nginx::SetNoBlocking(int fd) {

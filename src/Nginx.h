@@ -36,7 +36,7 @@ public:
 	long lastActive;//上次活跃的时间(秒) 从1970年1月1日开始
 	/* 内部的数据 */
 	char *readBuf;//读到的数据
-	int readIdx;//读到的位置（可能一次读不全）
+	size_t readIdx;//读到的位置（可能一次读不全）
 	int readBufSize;//buf大小
 	char *writeBuf;//写的数据--避免没有写完
 	int writeIdx;
@@ -46,10 +46,60 @@ public:
 	int sockfd;//发送或者接收的套接字
 	typedef void(Nginx::*func)(char *proto);
 	map<int, func> callBack;//回调函数
+
+	/* parse http */
+    enum METHOD { GET = 0, POST, HEAD, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH };//各种请求
+	enum HTTP_CODE { NO_REQUEST, //请求不完整，需要继续读客户数据
+					GET_REQUEST, //得到一个完整的客户请求
+					BAD_REQUEST, //请求语法错误
+					NO_RESOURCE, //没有资源
+					FORBIDDEN_REQUEST, //客户端对资源没有足够的访问权限
+					FILE_REQUEST, //文件请求
+					INTERNAL_ERROR, //服务器内部错误
+					CLOSED_CONNECTION /*客户端关闭连接*/};
+	enum LINE_STATUS { LINE_OK = 0, LINE_BAD, LINE_OPEN };//读取状态：1.读到完整行 2.行出错 3.数据不完整
+	enum CHECK_STATE { CHECK_STATE_REQUESTLINE = 0, CHECK_STATE_HEADER, CHECK_STATE_CONTENT };//正在分析请求行、头部字段、内容
+	/*文件名最大长度*/
+    static const int FILENAME_LEN = 200;
+    /* request 最大长度 */
+    static const int MAXHTTPREQUEST = 4 * 1024;//占时设置4k
+    static const char* httpFileRoot = "/var/www/html/";//到时候可以写入配置文件----
+    /* 响应码 */
+    static const char* ok_200_title = "OK";
+	static const char* error_301_title = "Found Other";
+	static const char* error_400_title = "Bad Request";
+	static const char* error_400_form = "Your request has bad syntax or is inherently impossible to satisfy.\n";
+	static const char* error_403_title = "Forbidden";
+	static const char* error_403_form = "You do not have permission to get file from this server.\n";
+	static const char* error_404_title = "Not Found";
+	static const char* error_404_form = "The requested file was not found on this server.\n";
+	static const char* error_500_title = "Internal Error";
+	static const char* error_500_form = "There was an unusual problem serving the requested file.\n";
+    /* 解析到的位置 */
+    size_t checkedIdx;
+    /* 正在解析的行的起始位置 */
+    size_t startLine;
+    /* 主状态机当前所处的状态 */
+    CHECK_STATE checkState;
+    /* 解析方法 */
+    METHOD httpMethod;
+	/* 文件名-绝对路径 */
+    string fileName;
+	/*http协议号*/
+    string httpVer;
+	/*请求消息体长度*/
+    size_t contentLength;
+	/*http是否保持连接*/
+    bool keepLinger;
+    /* http host name */
+    string httpHost;
+    /*目标文件状态，是否是目录，是否可读，文件大小*/
+	struct stat fileStat;
 public:
-	Nginx(size_t readBufSize = 1024, size_t writeBufSize = 1024);
+	Nginx(size_t readBufSize = 2048, size_t writeBufSize = 1024);
 	~Nginx();
 	bool Read();
+	bool ReadHttp();
 	bool ReadProto();
 	bool Write();
 	bool WriteWithoutProto(string &data);
@@ -67,9 +117,29 @@ public:
 	void SerCon(char *proto);
 	void CliCon(char *proto);
 	/* 服务器响应回来了 */
-	void Server2NginxRcve(char *proto);
+	// void Server2NginxRcve(char *proto);
 	/* 主动发送proto的函数 */
 	void AckVote2FollowerSend();//投票响应 只发给一个节点
+
+	/* 解析http request */
+	HTTP_CODE ParseRequest();
+	HTTP_CODE ParseRequestLine(char *text);
+	HTTP_CODE ParseRequestHeader(char *text);
+	HTTP_CODE ParseRequestContent(char *text);
+	LINE_STATUS ParseBlankLine();
+	/* do request */
+	HTTP_CODE DoRequest();
+	/* response */
+	bool WriteHttpResponse();
+	bool WriteHttpHeader(HTTP_CODE ret);
+	bool AddResponse( const char* format, ... );
+	bool AddStatusLine( int status, const char* title );
+	bool AddHeaders( int content_len, const char *location = NULL);
+	bool AddContentLength( int content_len );
+    bool AddContent( const char* content );
+    bool AddLinger();
+	bool AddLocation(const char *otherUrl);
+    bool AddBlankLine();
 
 	/* 关于epoll */
 	int SetNoBlocking(int fd);

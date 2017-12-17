@@ -26,12 +26,19 @@ bool DtbtNginx::ReadDtbtNginxConf(string num, string confSrc){
 	string hostPre("DtbtNginx");
 	string lisSerPre("ListenNginx");
 	string lisCliPre("ListenClient");
+	string nginxMode("nginxMode");
 	ReadConf rc;
 	rc.read(confSrc);
 	int idx;
 	for(auto m : rc.conf){
 		string key = m.first;
 		string val = m.second;
+		/* 模式 */
+		if(nginxMode == key){
+			nginxMode = atoi(val.c_str());//没有安全检查
+			continue;
+		}
+		/* 获取ip port */
 		idx = val.find(':');
 		if(idx == val.npos){
 			LOG(ERROR) << "ReadDtbtNginxConf error";
