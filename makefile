@@ -10,7 +10,7 @@ myDtbtNginx: $(object)
 DtbtNginx.o:
 	g++ -std=c++11 -g -c src/DtbtNginx.cc -o $(LIB)/DtbtNginx.o $(GTEST_CPPFLAG1) $(GTEST_CPPFLAG2) $(GTEST_CPPFLAG3)
 Nginx.o:
-	g++ -std=c++11 -g -c src/Nginx.cc -o $(LIB)/Nginx.o $(GTEST_CPPFLAG1)$(GTEST_CPPFLAG2) $(GTEST_CPPFLAG3)
+	g++ -std=c++11 -g -c src/Nginx.cc -o $(LIB)/Nginx.o $(GTEST_CPPFLAG1) $(GTEST_CPPFLAG2) $(GTEST_CPPFLAG3)
 
 inNginx.pb.o:
 	g++ -std=c++11 -g -c proto/inNginx.pb.cc -o $(LIB)/inNginx.pb.o

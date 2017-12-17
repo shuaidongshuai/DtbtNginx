@@ -1,0 +1,164 @@
+[INFO | 2017-12-17 17:17:49,384] 发送失败
+[INFO | 2017-12-17 17:17:49,770] 发送失败
+[INFO | 2017-12-17 17:17:50,154] 发送失败
+[INFO | 2017-12-17 17:17:50,539] 发送失败
+[INFO | 2017-12-17 17:17:50,924] 发送失败
+[INFO | 2017-12-17 17:17:51,117] 发送失败
+[INFO | 2017-12-17 17:17:52,067] 发送失败
+[INFO | 2017-12-17 17:17:52,520] 发送失败
+[INFO | 2017-12-17 17:17:52,907] 发送失败
+[INFO | 2017-12-17 17:17:53,106] 发送失败
+[INFO | 2017-12-17 17:17:53,302] 发送失败
+[INFO | 2017-12-17 17:17:53,686] 发送失败
+[INFO | 2017-12-17 17:17:54,079] 发送失败
+[INFO | 2017-12-17 17:17:54,464] 发送失败
+[INFO | 2017-12-17 17:17:54,851] 发送失败
+[INFO | 2017-12-17 17:17:59,085] len to long :33686018
+[INFO | 2017-12-17 17:17:59,137] 客服端正常退出
+[INFO | 2017-12-17 17:19:05,325] 客服端正常退出
+[INFO | 2017-12-17 17:19:16,224] 客服端正常退出
+[INFO | 2017-12-17 17:44:00,360] 客服端正常退出
+[INFO | 2017-12-17 17:48:08,108] kill all the clild now
+[INFO | 2017-12-17 17:48:09,853] kill all the clild now
+[INFO | 2017-12-17 17:48:11,185] kill all the clild now
+[INFO | 2017-12-17 17:48:12,224] kill all the clild now
+[INFO | 2017-12-17 17:48:12,226] 客服端正常退出
+[INFO | 2017-12-17 17:48:13,459] kill all the clild now
+[INFO | 2017-12-17 17:48:14,515] kill all the clild now
+[INFO | 2017-12-17 17:48:15,337] kill all the clild now
+[INFO | 2017-12-17 17:53:36,505] kill all the clild now
+[INFO | 2017-12-17 17:53:36,697] child close 0
+[INFO | 2017-12-17 17:53:59,672] 发送失败
+[INFO | 2017-12-17 17:54:00,227] 发送失败
+[INFO | 2017-12-17 17:54:00,779] 发送失败
+[INFO | 2017-12-17 17:54:01,059] 发送失败
+[INFO | 2017-12-17 17:54:01,340] 发送失败
+[INFO | 2017-12-17 17:54:01,892] 发送失败
+[INFO | 2017-12-17 17:54:02,445] 发送失败
+[INFO | 2017-12-17 17:54:03,014] 发送失败
+[INFO | 2017-12-17 17:54:03,016] 发送失败
+[INFO | 2017-12-17 17:54:03,569] 发送失败
+[INFO | 2017-12-17 17:54:04,124] 发送失败
+[INFO | 2017-12-17 17:54:04,677] 发送失败
+[INFO | 2017-12-17 17:54:05,231] 发送失败
+[INFO | 2017-12-17 17:54:08,842] kill all the clild now
+[INFO | 2017-12-17 17:54:09,195] child close 0
+[INFO | 2017-12-17 17:54:10,750] kill all the clild now
+[INFO | 2017-12-17 17:54:11,009] child close 0
+[INFO | 2017-12-17 17:56:55,091] become a Leader
+[INFO | 2017-12-17 17:56:55,092] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 17:59:17,120] kill all the clild now
+[INFO | 2017-12-17 17:59:17,447] child close 0
+[INFO | 2017-12-17 17:59:17,690] kill all the clild now
+[INFO | 2017-12-17 17:59:17,891] child close 0
+[INFO | 2017-12-17 18:01:31,311] become a Leader
+[INFO | 2017-12-17 18:01:31,315] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 18:02:18,425] kill all the clild now
+[INFO | 2017-12-17 18:02:18,686] child close 0
+[INFO | 2017-12-17 18:02:18,972] kill all the clild now
+[INFO | 2017-12-17 18:02:19,158] child close 0
+[INFO | 2017-12-17 18:10:03,966] 127.0.0.1 9001not vote for 127.0.0.1 9001
+[INFO | 2017-12-17 18:10:04,139] 127.0.0.1 9001not vote for 127.0.0.1 9001
+[INFO | 2017-12-17 18:10:04,492] become a Leader
+[INFO | 2017-12-17 18:10:04,496] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 18:10:38,073] kill all the clild now
+[INFO | 2017-12-17 18:10:38,373] child close 0
+[INFO | 2017-12-17 18:10:39,214] kill all the clild now
+[INFO | 2017-12-17 18:10:39,503] child close 0
+[INFO | 2017-12-17 18:12:30,892] 发送失败
+[INFO | 2017-12-17 18:12:44,299] kill all the clild now
+[INFO | 2017-12-17 18:12:44,495] child close 0
+[INFO | 2017-12-17 18:28:50,380] become a Leader
+[INFO | 2017-12-17 18:28:50,382] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 18:28:53,452] kill all the clild now
+[INFO | 2017-12-17 18:28:53,686] child close 0
+[INFO | 2017-12-17 18:28:57,555] kill all the clild now
+[INFO | 2017-12-17 18:28:57,843] child close 0
+[INFO | 2017-12-17 18:34:28,887] kill all the clild now
+[INFO | 2017-12-17 18:34:29,095] child close 0
+[INFO | 2017-12-17 18:35:49,296] kill all the clild now
+[INFO | 2017-12-17 18:35:49,464] child close 0
+[INFO | 2017-12-17 18:38:03,986] 客服端正常退出
+[INFO | 2017-12-17 18:39:51,199] become a Leader
+[INFO | 2017-12-17 18:39:51,202] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 18:39:59,710] len to long :1414012975
+[INFO | 2017-12-17 18:40:07,187] kill all the clild now
+[INFO | 2017-12-17 18:40:07,627] kill all the clild now
+[INFO | 2017-12-17 18:40:08,136] child close 0
+[INFO | 2017-12-17 18:40:09,408] child close 0
+[INFO | 2017-12-17 18:55:22,201] become a Leader
+[INFO | 2017-12-17 18:55:22,202] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 18:55:31,562] len too long :1414012975
+[INFO | 2017-12-17 18:55:38,696] child close 0
+[INFO | 2017-12-17 18:55:44,643] kill all the clild now
+[INFO | 2017-12-17 18:55:44,835] child close 0
+[INFO | 2017-12-17 19:04:32,764] become a Leader
+[INFO | 2017-12-17 19:04:32,766] 127.0.0.1 9001 become a Leader, I am a follower
+[INFO | 2017-12-17 19:04:41,162] len too long :1414012975
+[INFO | 2017-12-17 19:04:48,893] child close 0
+[INFO | 2017-12-17 19:04:51,161] kill all the clild now
+[INFO | 2017-12-17 19:04:51,391] child close 0
+[INFO | 2017-12-17 19:09:31,377] len too long :1414012975
+[INFO | 2017-12-17 19:09:34,054] kill all the clild now
+[INFO | 2017-12-17 19:09:34,227] child close 0
+[INFO | 2017-12-17 19:15:09,262] len too long :1414012975
+[INFO | 2017-12-17 19:15:11,323] kill all the clild now
+[INFO | 2017-12-17 19:15:11,513] child close 0
+[INFO | 2017-12-17 19:24:12,154] fd=16 len too long :1414012975
+[INFO | 2017-12-17 19:24:15,296] kill all the clild now
+[INFO | 2017-12-17 19:24:15,466] child close 0
+[INFO | 2017-12-17 19:28:40,847] 客服端正常退出
+[INFO | 2017-12-17 19:28:43,428] kill all the clild now
+[INFO | 2017-12-17 19:28:43,629] child close 0
+[INFO | 2017-12-17 19:30:21,063] 客服端正常退出
+[INFO | 2017-12-17 19:30:22,080] 客服端正常退出
+[INFO | 2017-12-17 19:30:24,404] kill all the clild now
+[INFO | 2017-12-17 19:30:24,593] child close 0
+[INFO | 2017-12-17 19:34:23,894] 客服端正常退出
+[INFO | 2017-12-17 19:34:26,776] kill all the clild now
+[INFO | 2017-12-17 19:34:26,956] child close 0
+[INFO | 2017-12-17 19:39:00,865] 客服端正常退出
+[INFO | 2017-12-17 19:39:03,455] kill all the clild now
+[INFO | 2017-12-17 19:39:03,660] child close 0
+[INFO | 2017-12-17 19:42:16,877] 客服端正常退出
+[INFO | 2017-12-17 19:42:24,171] 客服端正常退出
+[INFO | 2017-12-17 19:42:25,181] 客服端正常退出
+[INFO | 2017-12-17 19:42:27,189] 客服端正常退出
+[INFO | 2017-12-17 19:42:54,284] 客服端正常退出
+[INFO | 2017-12-17 19:42:55,294] 客服端正常退出
+[INFO | 2017-12-17 19:42:57,313] 客服端正常退出
+[INFO | 2017-12-17 19:43:00,323] 客服端正常退出
+[INFO | 2017-12-17 19:43:04,259] kill all the clild now
+[INFO | 2017-12-17 19:43:04,476] child close 0
+[INFO | 2017-12-17 19:46:39,613] 不支持:GET / HTTP/1.1 请求
+[INFO | 2017-12-17 19:46:39,620] 客服端异常退出
+[INFO | 2017-12-17 19:46:43,610] kill all the clild now
+[INFO | 2017-12-17 19:46:43,802] child close 0
+[INFO | 2017-12-17 19:59:24,424] 发送失败
+[INFO | 2017-12-17 19:59:24,445] 客服端正常退出
+[INFO | 2017-12-17 19:59:26,364] kill all the clild now
+[INFO | 2017-12-17 19:59:26,598] child close 0
+[INFO | 2017-12-17 20:07:53,007] 发送失败
+[INFO | 2017-12-17 20:07:53,012] 客服端正常退出
+[INFO | 2017-12-17 20:07:56,161] kill all the clild now
+[INFO | 2017-12-17 20:07:56,363] child close 0
+[INFO | 2017-12-17 20:10:01,208] 发送失败
+[INFO | 2017-12-17 20:10:01,213] 客服端正常退出
+[INFO | 2017-12-17 20:10:02,889] kill all the clild now
+[INFO | 2017-12-17 20:10:03,072] child close 0
+[INFO | 2017-12-17 20:14:26,485] 发送失败
+[INFO | 2017-12-17 20:14:26,492] 客服端正常退出
+[INFO | 2017-12-17 20:14:28,525] kill all the clild now
+[INFO | 2017-12-17 20:14:28,717] child close 0
+[INFO | 2017-12-17 20:26:37,566] 客服端正常退出
+[INFO | 2017-12-17 20:26:41,900] kill all the clild now
+[INFO | 2017-12-17 20:26:42,083] child close 0
+[INFO | 2017-12-17 20:27:35,845] kill all the clild now
+[INFO | 2017-12-17 20:27:36,018] child close 0
+[INFO | 2017-12-17 20:29:28,763] kill all the clild now
+[INFO | 2017-12-17 20:29:28,959] child close 0
+[INFO | 2017-12-17 20:30:33,224] 客服端正常退出
+[INFO | 2017-12-17 20:30:36,068] kill all the clild now
+[INFO | 2017-12-17 20:30:36,263] child close 0
+[INFO | 2017-12-17 20:31:20,077] kill all the clild now
+[INFO | 2017-12-17 20:31:20,271] child close 0

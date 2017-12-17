@@ -44,35 +44,17 @@ void Nginx::SetReadBuf(int size){
 	readBufSize = size;
 	delete temp;
 }
+/* 返回true都是异常 */
 bool Nginx::Read(){
-	lastActive = time(0);//记录活跃的时间
-	int nread = 0;
-	while(1){
-		nread = read(sockfd, readBuf + readIdx, 2 * sizeof(int) - readIdx);
-		if (nread == -1) {
-			if(errno == EAGAIN){
-				return false;
-			}
-			LOG(INFO) << "客服端异常退出";
-			CloseSocket();
-			return true;
-		}
-		if(nread == 0) {
-			LOG(INFO) << "客服端正常退出";
-			CloseSocket();
-			return true;
-		}
-		readIdx += nread;
-	}
-	return true;
+	
 }
 /* 读http请求 true代表解析完一个请求 */
 bool Nginx::ReadHttp(){
 	lastActive = time(0);//记录活跃的时间
 	int nread = 0;
 	int maxRead = MAXHTTPREQUEST;
-	while(readIdx < maxRead){
-		nread = read(sockfd, readBuf + readIdx, 2 * sizeof(int) - readIdx);
+	while(readIdx < readBufSize){
+		nread = read(sockfd, readBuf + readIdx, readBufSize - readIdx);
 		if (nread == -1) {
 			if(errno == EAGAIN){
 				return false;
@@ -90,16 +72,23 @@ bool Nginx::ReadHttp(){
 		/* 读一次就解析一次 */
 		HTTP_CODE read_ret = ParseRequest();
 	    if ( read_ret != NO_REQUEST ) {
+	    	/* 缓存响应头部 */
+   			bool write_ret = WriteHttpHeader( read_ret );
+			if ( ! write_ret ) {
+				LOG(WARNING) << "缓存响应头部 false";
+				CloseSocket();
+			}
 	    	return true;
 	    }
 	}
-	if(readIdx > MAXHTTPREQUEST){
-		CloseSocket(sockfd);
+	if(readIdx > readBufSize){
+		LOG(WARNING) << "request len > readBufSize";
+		CloseSocket();
 	}
 	return true;
 }
 /* 解析http request */
-HTTP_CODE Nginx::ParseRequest(){
+Nginx::HTTP_CODE Nginx::ParseRequest(){
 	LINE_STATUS line_status = LINE_OK;//读取状态
     HTTP_CODE ret = NO_REQUEST;		//占时请求状态设置为不完整
     char* text = 0;
@@ -118,6 +107,7 @@ HTTP_CODE Nginx::ParseRequest(){
             {
                 ret = ParseRequestLine( text );
                 if ( ret == BAD_REQUEST ) {
+                	LOG(DEBUG) << "RequestLine bad ";
                     return BAD_REQUEST;
                 }
                 break;
@@ -127,10 +117,11 @@ HTTP_CODE Nginx::ParseRequest(){
             {
                 ret = ParseRequestHeader( text );
                 if ( ret == BAD_REQUEST ) {
+                	LOG(DEBUG) << "RequestHeader bad ";
                     return BAD_REQUEST;
                 }
                 else if ( ret == GET_REQUEST ) {
-                    return do_request();
+                    return DoRequest();
                 }
                 break;
             }
@@ -153,13 +144,15 @@ HTTP_CODE Nginx::ParseRequest(){
     return NO_REQUEST;
 }
 /*解析请求消息行*/
-HTTP_CODE ParseRequestLine(char *text) {
+Nginx::HTTP_CODE Nginx::ParseRequestLine(char *text) {
 	char *temp = strpbrk( text, " \t" );
     if ( ! temp ) {
+    	LOG(INFO) << "RequestLine error";
         return BAD_REQUEST;
     }
+    *temp++ = '\0';
     char* method = text;
-    if ( strcasecmp( method, "GET" ) == 0 ) {
+    if ( strcasecmp( method, "GET" ) == 0 ) {//忽略大小写比较字符串
     	//占时只支持get请求
         httpMethod = GET;
     }
@@ -167,8 +160,7 @@ HTTP_CODE ParseRequestLine(char *text) {
 		LOG(INFO) << "不支持:" << method << " 请求";
         return BAD_REQUEST;
     }
-	*temp++ = '\0';
-    temp += strspn( temp, " \t" );
+    temp += strspn( temp, " \t" );//返回字符串中第一个不在指定字符串中出现的字符下标
     httpVer = strpbrk( temp, " \t" );
     if ( ! httpVer ) {
         return BAD_REQUEST;
@@ -186,7 +178,7 @@ HTTP_CODE ParseRequestLine(char *text) {
     }
     else if( strncasecmp( temp, "https://", 8 ) == 0 ){
     	temp += 8;
-        temp = strchr( temp, '/' );
+        temp = strchr( temp, '/' );//查找字符串_Str中首次出现字符_Val的位置
     }
 
     if ( ! temp || temp[ 0 ] != '/' ) {
@@ -194,9 +186,17 @@ HTTP_CODE ParseRequestLine(char *text) {
     }
 	++temp;//这样可以去掉 /
 
-	//temp后面的就是文件名了 再后面是 \0\0
+	//temp后面的就是文件名了
 	fileName = httpFileRoot;
-	fileName += temp;
+
+	/* 注意：我们默认请求的是 index.html */
+	if(*temp == '\0'){
+		fileName += "index.html";
+	}
+	else{
+		fileName += temp;
+	}
+	// LOG(DEBUG) << "fileName = " << fileName << " temp = " << *temp;
 
 	//判断需不需要重定位--因为文件的传输不用当前服务器
 	//if(strstr(temp, ".exe") || strstr(temp, ".pdf"))
@@ -205,7 +205,7 @@ HTTP_CODE ParseRequestLine(char *text) {
     return NO_REQUEST;
 }
 /* 请求消息头-只解析必出现的几个头 */
-HTTP_CODE ParseRequestHeader(char *text){
+Nginx::HTTP_CODE Nginx::ParseRequestHeader(char *text){
 	if( text[ 0 ] == '\0' ) {
         if ( httpMethod == HEAD ) {
             return GET_REQUEST;
@@ -241,7 +241,7 @@ HTTP_CODE ParseRequestHeader(char *text){
     return NO_REQUEST;//请求不完整
 }
 /* 消息体 */
-HTTP_CODE ParseRequestContent(char *text){
+Nginx::HTTP_CODE Nginx::ParseRequestContent(char *text){
 	/* 已经读到数据 >= 请求消息体长度 + 已经解析的长度 (消息体是不需要解析的) */
     if ( readIdx >= ( contentLength + checkedIdx ) ) {
         text[ contentLength ] = '\0';
@@ -251,7 +251,7 @@ HTTP_CODE ParseRequestContent(char *text){
     return NO_REQUEST;
 }
 
-LINE_STATUS ParseBlankLine(){
+Nginx::LINE_STATUS Nginx::ParseBlankLine(){
 	char temp;
     for ( ; checkedIdx < readIdx; ++checkedIdx ) {
         temp = readBuf[ checkedIdx ];
@@ -282,7 +282,7 @@ LINE_STATUS ParseBlankLine(){
     return LINE_OPEN;
 }
 
-HTTP_CODE DoRequest(){
+Nginx::HTTP_CODE Nginx::DoRequest(){
 	//提供文件名字，获取文件对应属性。
     if ( stat( fileName.c_str(), &fileStat ) < 0 ) {
     	LOG(DEBUG) << "资源不存在";
@@ -336,10 +336,13 @@ bool Nginx::WriteHttpResponse(){
 		LOG(WARNING) << "WriteHttpResponse open " << fileName << " error";
 		return true;
 	}
-	writeLen += fileStat.st_size;
+	if(writeIdx == writeLen){
+		writeLen += fileStat.st_size;
+	}
+	off_t idx = writeIdx - (writeLen - fileStat.st_size);
 	while (1){
 		// ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
-		n = sendfile(sockfd, fd, writeBuf + writeIdx, writeLen - writeIdx);
+		n = sendfile(sockfd, fd, &idx, writeLen - writeIdx);
 		if ( n <= -1 ) {
 			if( errno == EAGAIN ) {
 				LOG(DEBUG) << "当前不可写，继续监听写事件";
@@ -410,8 +413,8 @@ bool Nginx::WriteHttpHeader(HTTP_CODE ret){
         case FILE_REQUEST:
         {
             AddStatusLine( 200, ok_200_title );
-            if ( m_file_stat.st_size != 0 ) {
-                AddHeaders( m_file_stat.st_size );
+            if ( fileStat.st_size != 0 ) {
+                AddHeaders( fileStat.st_size );
                 return true;
             }
             else
@@ -509,7 +512,7 @@ bool Nginx::ReadProto(){
 		int cmd = *(int *)readBuf;
 		int len = *((int *)readBuf + 1);
 		if(len > 1024 * 1024){
-			LOG(INFO) << "len to long :" << len;
+			LOG(INFO) << "fd=" << sockfd << " len too long :" << len;
 			CloseSocket();
 			return true;
 		}
@@ -534,7 +537,7 @@ bool Nginx::ReadProto(){
 			}
 			readIdx += nread;
 		}
-		LOG(DEBUG) << "读到" << clientName << "：" << readBuf << "---" << readIdx << "字节";
+		// LOG(DEBUG) << "读到" << clientName << "：" << readBuf << "---" << readIdx << "字节";
 		//执行回调函数
 		(this->*(callBack[cmd]))(readBuf + 2 * sizeof(int));
 		//数据读完 读指针置0
@@ -859,19 +862,23 @@ void Nginx::CliCon(char *proto){
 		LOG(ERROR) << "SerCon len < 0";
 		return;
 	}
-	while((connfd = accept( dbNginx->lisClifd, (struct sockaddr*)&client_addr, &client_addrlen)) > 0) {
-		ipStr = string(inet_ntoa(client_addr.sin_addr));
-		portStr = to_string(ntohs(client_addr.sin_port));
+	struct sockaddr_in clientAddr;
+	string ipStr, portStr;
+	int connfd;
+	socklen_t cliAddrLen;
+	while((connfd = accept( dbNginx->lisClifd, (struct sockaddr*)&clientAddr, &cliAddrLen)) > 0) {
+		ipStr = string(inet_ntoa(clientAddr.sin_addr));
+		portStr = to_string(ntohs(clientAddr.sin_port));
 		//name
-		clientName = ipStr + " " + portStr;
+		dbNginx->nginxs[connfd].clientName = ipStr + " " + portStr;
 		//记录fd
-		sockfd = connfd;
+		dbNginx->nginxs[connfd].sockfd = connfd;
 		//设置超时时间
-		SetTimeout(2, 6);//心跳2s、断开6s
+		dbNginx->nginxs[connfd].SetTimeout(2, 6);//心跳2s、断开6s
 		//监听读事件
-		Addfd2Read();
+		dbNginx->nginxs[connfd].Addfd2Read();
+		LOG(DEBUG) << "connect a client: " << clientName << " fd=" << connfd;
 	}
-    LOG(DEBUG) << "server request to child " << i;
 }
 
 int Nginx::SetNoBlocking(int fd) {
@@ -955,6 +962,14 @@ void Nginx::CloseSocket(){
 	readIdx = 0;
 	writeIdx = 0;
 	writeLen = 0;
+
+	checkedIdx = 0;
+    startLine = 0;
+    fileName.clear();
+    httpVer = NULL;
+    contentLength = 0;
+    keepLinger = false;
+    httpHost.clear();
 }
 
 void Nginx::AcceptNginx(int sockfd){
@@ -962,7 +977,7 @@ void Nginx::AcceptNginx(int sockfd){
 	//记录集群存活的节点fd
 	dbNginx->aliveNginxfd.push_back(sockfd);
 	//记录fd
-	sockfd = sockfd;
+	this->sockfd = sockfd;
 	//设置超时时间
 	SetTimeout(2, 6);//心跳2s、断开6s
 	//监听读事件

@@ -251,7 +251,7 @@ void Processpool::runChild() {
 	int sockfd, connfd;
 	int readSize = 0;
 	struct sockaddr_in client_addr;
-	socklen_t client_addrlen = sizeof(client_addr);
+	socklen_t cliAddrLen = sizeof(client_addr);
 	string ipStr, portStr;
 
 	/* 小根堆 用于 keepalive , 将来如果某个事件需要特殊处理也可以加进来 */
@@ -266,6 +266,7 @@ void Processpool::runChild() {
         }
 		for( int i = 0; i < number ; i++) {
 			sockfd = ((Nginx *)events[i].data.ptr)->sockfd;
+			LOG(DEBUG) << "sockfd = " << sockfd;
 			 /* 接收父进程发过来的信息 */
 			if( ( sockfd == pipefd ) && ( events[i].events & EPOLLIN ) ) {
 				if(nginxs[sockfd].sockfd == -1){
@@ -276,14 +277,9 @@ void Processpool::runChild() {
 			}
 			/* 接收到信号 */
 			else if( ( sockfd == sigPipefd[0] ) && ( events[i].events & EPOLLIN ) )	{
-				char signals[10];
-				if(nginxs[sockfd].Read()){
-					ret = nginxs[sockfd].readIdx;
-					//数据读完 或者 close 读指针置0
-					nginxs[sockfd].readIdx = 0;
-				}
-				else{
-					// 没有读完
+				char signals[1024];
+				ret = recv( sockfd, signals, sizeof( signals ), 0 );
+				if( ret <= 0 ) {
 					continue;
 				}
 				for( int i = 0; i < ret ; i++)	{
@@ -316,30 +312,29 @@ void Processpool::runChild() {
             		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
             		continue;
             	}
-				
+
 			}
 			/* 客服端请求来到 */
 			else if( events[i].events & EPOLLIN ) {
+				// LOG(DEBUG) << "客服端请求来到 fd=" << sockfd;
 				if(nginxs[sockfd].sockfd == -1) {
             		LOG(ERROR) << "write sockfd had close fd=" << sockfd;
             		continue;
             	}
 				//先读完请求
 				if(!nginxs[sockfd].ReadHttp()){
-					nginxs[serverfd].Addfd2Read();
+					nginxs[sockfd].Addfd2Read();
+					continue;
+				}
+				if(-1 == nginxs[sockfd].sockfd){
 					continue;
 				}
 				int readSize = nginxs[sockfd].readIdx;
 				nginxs[sockfd].readIdx = 0;
 
 				if(dbNginx->nginxMode == WEB){
-					/* 准备写入的内容 */
-		   			bool write_ret = WriteHttpHeader( read_ret );//缓存响应头部
-				    if ( ! write_ret ) {
-				        CloseSocket();
-				    }
 				    /* 正真的写回 client */
-				    if(WriteHttpResponse()){
+				    if(nginxs[sockfd].WriteHttpResponse()){
 				    	nginxs[sockfd].Addfd2Read();
 				    }
 				    else{
@@ -419,10 +414,11 @@ void Processpool::runParent() {
 	InitSigPipe(nginxs);
 
 	/* 将子进程添加到ConsistentHash */
-	for(int i = 0; i < childIdx; ++i){
+	for(int i = 0; i < processNumber; ++i){
 		//虚拟节点20个
 		dbNginx->csshash->addNode(dbNginx->nginxName + "|" + to_string(subProcess[i].pipefd[0]), 20);
 		nginxs[subProcess[i].pipefd[0]].sockfd = subProcess[i].pipefd[0];
+		LOG(DEBUG) << "subProcess[i].pipfd[0] = " << subProcess[i].pipefd[0];
 		// 监听 - 对于本程序没啥用 child dont send to father
 		// [subProcess[i].pipefd[0]].Addfd2Read();
 	}
@@ -436,6 +432,11 @@ void Processpool::runParent() {
 	nginxs[dtbtfd].sockfd = dtbtfd;
     nginxs[dtbtfd].Addfd2Read();
 
+    nginxs[dbNginx->lisSerfd].sockfd = dbNginx->lisSerfd;
+    nginxs[dbNginx->lisSerfd].Addfd2Read();
+	nginxs[dbNginx->lisClifd].sockfd = dbNginx->lisClifd;
+    nginxs[dbNginx->lisClifd].Addfd2Read();
+
 	/* 和集群中的其他节点进行连接 */
 	dbNginx->ConOtherNginx();
 
@@ -446,7 +447,7 @@ void Processpool::runParent() {
     int ret = -1;
 	int sockfd, connfd;
 	struct sockaddr_in client_addr;
-	socklen_t client_addrlen = sizeof(client_addr);
+	socklen_t cliAddrLen = sizeof(client_addr);
 	
 	/* 小根堆 用于 keepalive 和 投票倒计时 */
 	dbNginx->TimeHeapAdd(2000);//心跳的间隔为2秒
@@ -467,7 +468,7 @@ void Processpool::runParent() {
 			if(dbNginx->status == FOLLOWER && dbNginx->leaderName[ENSURE].empty()){
 				dbNginx->status = CANDIDATE;
 				dbNginx->VoteSend();
-				LOG(DEBUG) << "vote for self ";
+				// LOG(DEBUG) << "vote for self ";
 			}
 			else if(dbNginx->status == CANDIDATE && dbNginx->leaderName[ENSURE].empty()){
 				dbNginx->status = FOLLOWER;
@@ -512,7 +513,7 @@ void Processpool::runParent() {
 			}
 			/* 服务器连接 */
 			else if(sockfd == dbNginx->lisSerfd){
-				while((connfd = accept( dtbtfd, (struct sockaddr*)&client_addr, &client_addrlen)) > 0) {
+				while((connfd = accept( dtbtfd, (struct sockaddr*)&client_addr, &cliAddrLen)) > 0) {
 					ipStr = string(inet_ntoa(client_addr.sin_addr));
 					portStr = to_string(ntohs(client_addr.sin_port));
 					/* 让所有进程都去连接这个server*/
@@ -531,45 +532,15 @@ void Processpool::runParent() {
 			}
 			/* 集群 connect */
 			else if(sockfd == dtbtfd){
-				while((connfd = accept( dtbtfd, (struct sockaddr*)&client_addr, &client_addrlen)) > 0) {
+				while((connfd = accept( dtbtfd, (struct sockaddr*)&client_addr, &cliAddrLen)) > 0) {
 					nginxs[connfd].AcceptNginx(connfd);
 				}
 			}
-			/* 集群消息 */
-			else if(sockfd > 0 && sockfd < MAX_MAIN_PROCESS_EVENT + 1){
-				if( events[i].events & ( EPOLLRDHUP | EPOLLHUP | EPOLLERR ) )  {
-	                nginxs[sockfd].CloseSocket();
-	            }
-	            //写事件
-	            else if( events[i].events & EPOLLOUT ) {
-	            	if(nginxs[sockfd].sockfd == -1) {
-	            		LOG(ERROR) << "write sockfd had close fd=" << sockfd;
-	            	}
-	                //能进入到这里面说明已经监听写了，没有写完也不用再监听写了
-	                else if(nginxs[sockfd].Write()) {
-	                	//如果已经写完了 那么重新监听read
-	                	nginxs[sockfd].Addfd2Read();
-	                }
-	            }
-	            //读事件
-	            else if( events[i].events & EPOLLIN ){
-	            	if(nginxs[sockfd].sockfd == -1){
-	            		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
-	            	}
-					else if(nginxs[sockfd].ReadProto()){
-					}
-	            }
-			}
 			/* 父进程接收到的信号 */
 			else if( ( sockfd == sigPipefd[0] ) && ( events[i].events & EPOLLIN ) ) {
-				char signals[10];
-				if(nginxs[sockfd].Read()){
-					ret = nginxs[sockfd].readIdx;
-					//数据读完 或者 close 读指针置0
-					nginxs[sockfd].readIdx = 0;
-				}
-				else{
-					// 没有读完
+				char signals[1024];
+				ret = recv( sockfd, signals, sizeof( signals ), 0 );
+				if( ret <= 0 ) {
 					continue;
 				}
 				for( int i = 0; i < ret; ++i ) {
@@ -621,6 +592,31 @@ void Processpool::runParent() {
 						default:break;
 					}
 				}
+			}
+			/* 集群消息 */
+			else if(sockfd > 0 && sockfd < MAX_MAIN_PROCESS_EVENT + 1){
+				if( events[i].events & ( EPOLLRDHUP | EPOLLHUP | EPOLLERR ) )  {
+	                nginxs[sockfd].CloseSocket();
+	            }
+	            //写事件
+	            else if( events[i].events & EPOLLOUT ) {
+	            	if(nginxs[sockfd].sockfd == -1) {
+	            		LOG(ERROR) << "write sockfd had close fd=" << sockfd;
+	            	}
+	                //能进入到这里面说明已经监听写了，没有写完也不用再监听写了
+	                else if(nginxs[sockfd].Write()) {
+	                	//如果已经写完了 那么重新监听read
+	                	nginxs[sockfd].Addfd2Read();
+	                }
+	            }
+	            //读事件
+	            else if( events[i].events & EPOLLIN ){
+	            	if(nginxs[sockfd].sockfd == -1){
+	            		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
+	            	}
+					else if(nginxs[sockfd].ReadProto()){
+					}
+	            }
 			}
 			else{
 				LOG(ERROR) << "epoll socket = " << sockfd;

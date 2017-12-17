@@ -228,7 +228,7 @@ void DtbtNginx::SendKeepAlive(){
 					nginxs[fd].Addfd2Read();
 				}
 				nginxs[fd].lastKeepAlive = curTime;
-				LOG(DEBUG) << "send keepAlive to " << nginxs[fd].clientName;
+				// LOG(DEBUG) << "send keepAlive to " << nginxs[fd].clientName;
 			}
 			++it;
 		}
