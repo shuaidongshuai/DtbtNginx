@@ -20,7 +20,6 @@
 #include <vector>
 #include "Singleton.h"
 #include "ReadConf.h"
-// #include "../consHash/ConsistentHash.h"
 using namespace std;
 
 enum STATU{FOLLOWER, CANDIDATE, LEADER};//追随者，候选者，领导者

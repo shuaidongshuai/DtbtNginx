@@ -8,11 +8,28 @@
 #include <sys/sendfile.h>
 #include <ctime>
 
+const int Nginx::FILENAME_LEN = 200;
+const int Nginx::MAXHTTPREQUEST = 4 * 1024;//占时设置4k
+const char* Nginx::httpFileRoot = "html/";//到时候可以写入配置文件----
+const char* Nginx::ok_200_title = "OK";
+const char* Nginx::error_301_title = "Found Other";
+const char* Nginx::error_400_title = "Bad Request";
+const char* Nginx::error_400_form = "Your request has bad syntax or is inherently impossible to satisfy.\n";
+const char* Nginx::error_403_title = "Forbidden";
+const char* Nginx::error_403_form = "You do not have permission to get file from this server.\n";
+const char* Nginx::error_404_title = "Not Found";
+const char* Nginx::error_404_form = "The requested file was not found on this server.\n";
+const char* Nginx::error_500_title = "Internal Error";
+const char* Nginx::error_500_form = "There was an unusual problem serving the requested file.\n";
+
 /* 默认et模式 */
 Nginx::Nginx(size_t readBufSize, size_t writeBufSize)
 			:events(EPOLLET), eStatus(0), readBufSize(readBufSize), readIdx(0),
-			writeIdx(0),writeLen(0),writeBufSize(writeBufSize),
-			sockfd(-1), keepAliveInterval(-1), activeInterval(-1){//-1代表无限制
+			writeIdx(0),writeLen(0),writeBufSize(writeBufSize), sockfd(-1), //-1代表无限制
+			keepAliveInterval(-1), activeInterval(-1), checkedIdx(0), 
+			startLine(0), checkState(CHECK_STATE_REQUESTLINE), httpMethod(GET), httpVer(0), contentLength(0),
+			keepLinger(false)
+			{
 	dbNginx = Singleton<DtbtNginx>::getInstence();
 	readBuf = new char[readBufSize];
 	writeBuf = new char[writeBufSize];
@@ -64,7 +81,7 @@ bool Nginx::ReadHttp(){
 			return true;
 		}
 		if(nread == 0) {
-			LOG(INFO) << "客服端正常退出";
+			// LOG(INFO) << "客服端正常退出";
 			CloseSocket();
 			return true;
 		}
@@ -77,6 +94,10 @@ bool Nginx::ReadHttp(){
 			if ( ! write_ret ) {
 				LOG(WARNING) << "缓存响应头部 false";
 				CloseSocket();
+			}
+			else{
+				// LOG(DEBUG) << "parse success";
+				ClearResponse();
 			}
 	    	return true;
 	    }
@@ -105,6 +126,7 @@ Nginx::HTTP_CODE Nginx::ParseRequest(){
 			/*解析请求消息行*/
             case CHECK_STATE_REQUESTLINE:
             {
+            	// LOG(DEBUG) << "解析请求消息行";
                 ret = ParseRequestLine( text );
                 if ( ret == BAD_REQUEST ) {
                 	LOG(DEBUG) << "RequestLine bad ";
@@ -115,6 +137,7 @@ Nginx::HTTP_CODE Nginx::ParseRequest(){
 			/*解析请求消息头*/
             case CHECK_STATE_HEADER:
             {
+            	// LOG(DEBUG) << "解析请求消息头";
                 ret = ParseRequestHeader( text );
                 if ( ret == BAD_REQUEST ) {
                 	LOG(DEBUG) << "RequestHeader bad ";
@@ -128,6 +151,7 @@ Nginx::HTTP_CODE Nginx::ParseRequest(){
 			/*解析请求消息体*/
             case CHECK_STATE_CONTENT:
             {
+            	// LOG(DEBUG) << "解析请求消息体";
                 ret = ParseRequestContent( text );
                 if ( ret == GET_REQUEST ) {
                     return DoRequest();
@@ -210,7 +234,6 @@ Nginx::HTTP_CODE Nginx::ParseRequestHeader(char *text){
         if ( httpMethod == HEAD ) {
             return GET_REQUEST;
         }
-
         if ( contentLength != 0 ) {
             checkState = CHECK_STATE_CONTENT;
             return NO_REQUEST;
@@ -247,7 +270,7 @@ Nginx::HTTP_CODE Nginx::ParseRequestContent(char *text){
         text[ contentLength ] = '\0';
         return GET_REQUEST;
     }
-	/*数据不完整还需要读*/
+	/* 数据不完整还需要读 */
     return NO_REQUEST;
 }
 
@@ -285,7 +308,7 @@ Nginx::LINE_STATUS Nginx::ParseBlankLine(){
 Nginx::HTTP_CODE Nginx::DoRequest(){
 	//提供文件名字，获取文件对应属性。
     if ( stat( fileName.c_str(), &fileStat ) < 0 ) {
-    	LOG(DEBUG) << "资源不存在";
+    	LOG(DEBUG) << clientName << " fd=" << sockfd << " view资源不存在:" << fileName;
         return NO_RESOURCE;//没有资源
     }
     //文件对应的模式，文件，目录    S_IROTH  其他用户具可读取权限
@@ -299,12 +322,7 @@ Nginx::HTTP_CODE Nginx::DoRequest(){
         return BAD_REQUEST;
     }
 
-    int fd = open( fileName.c_str(), O_RDONLY );
-    if(fd < 0) {
-    	LOG(INFO) << "open:" << fileName << " error";
-    }
-
-    LOG(DEBUG) << "请求的文件大小：" << fileStat.st_size;
+    LOG(DEBUG) << clientName << " 请求的文件:" << fileName << " size=" << fileStat.st_size;
     return FILE_REQUEST;
 }
 
@@ -329,6 +347,9 @@ bool Nginx::WriteHttpResponse(){
 			LOG(WARNING) << "WriteHttpResponse writeIdx >  writeLen " << writeIdx - writeLen;
 			return true;
 		}
+	}
+	if(fileName.empty()){
+		return true;
 	}
 	/* 然后写文件 - 我直接用sendfile发送 - 将来如果性能差 - 改为保存到内存 */
 	int fd = open(fileName.c_str(), O_RDONLY);
@@ -453,8 +474,8 @@ bool Nginx::AddStatusLine( int status, const char* title ) {
     return AddResponse( "%s %d %s\r\n", "HTTP/1.1", status, title );
 }
 //添加请求消息头
-bool Nginx::AddHeaders( int content_len, const char *location) {
-    AddContentLength( content_len );
+bool Nginx::AddHeaders( int fileLen, const char *location) {
+    AddContentLength( fileLen );
     AddLinger();
 	//支持重定向技术
 	if(location)
@@ -462,8 +483,8 @@ bool Nginx::AddHeaders( int content_len, const char *location) {
     AddBlankLine();
 }
 //内容长度
-bool Nginx::AddContentLength( int content_len ) {
-    return AddResponse( "Content-Length: %d\r\n", content_len );
+bool Nginx::AddContentLength( int fileLen ) {
+    return AddResponse( "Content-Length: %d\r\n", fileLen );
 }
 //keep-alive
 bool Nginx::AddLinger() {
@@ -479,7 +500,7 @@ bool Nginx::AddBlankLine() {
 }
 //添加请求正文(用于错误响应)
 bool Nginx::AddContent( const char* content ) {
-    return AddResponse( "%s", content );
+    return AddResponse( "<html><body><p>%s</p></body></html>", content );
 }
 /*
 所有数据都是 cmd+len+protobuf  要按照这个来读 cmd 和 len 都是 int
@@ -874,10 +895,10 @@ void Nginx::CliCon(char *proto){
 		//记录fd
 		dbNginx->nginxs[connfd].sockfd = connfd;
 		//设置超时时间
-		dbNginx->nginxs[connfd].SetTimeout(2, 6);//心跳2s、断开6s
+		dbNginx->nginxs[connfd].SetTimeout(1, 3);//心跳1s、断开3s
 		//监听读事件
 		dbNginx->nginxs[connfd].Addfd2Read();
-		LOG(DEBUG) << "connect a client: " << clientName << " fd=" << connfd;
+		// LOG(DEBUG) << "connect a client: " << clientName << " fd=" << connfd;
 	}
 }
 
@@ -970,6 +991,18 @@ void Nginx::CloseSocket(){
     contentLength = 0;
     keepLinger = false;
     httpHost.clear();
+    checkState = CHECK_STATE_REQUESTLINE;
+}
+
+void Nginx::ClearResponse(){
+	readIdx = 0;
+	checkedIdx = 0;
+    startLine = 0;
+    httpVer = NULL;
+    contentLength = 0;
+    keepLinger = false;
+    httpHost.clear();
+    checkState = CHECK_STATE_REQUESTLINE;
 }
 
 void Nginx::AcceptNginx(int sockfd){

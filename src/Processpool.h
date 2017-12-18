@@ -266,7 +266,7 @@ void Processpool::runChild() {
         }
 		for( int i = 0; i < number ; i++) {
 			sockfd = ((Nginx *)events[i].data.ptr)->sockfd;
-			LOG(DEBUG) << "sockfd = " << sockfd;
+			// LOG(DEBUG) << "sockfd = " << sockfd;
 			 /* 接收父进程发过来的信息 */
 			if( ( sockfd == pipefd ) && ( events[i].events & EPOLLIN ) ) {
 				if(nginxs[sockfd].sockfd == -1){
@@ -336,12 +336,15 @@ void Processpool::runChild() {
 				    /* 正真的写回 client */
 				    if(nginxs[sockfd].WriteHttpResponse()){
 				    	nginxs[sockfd].Addfd2Read();
+				    	//webbench测试使用
+				    	if(!nginxs[sockfd].keepLinger)
+				    		nginxs[sockfd].CloseSocket();	
 				    }
 				    else{
 				    	nginxs[sockfd].Addfd2Write();
 				    }
 				}
-				else {
+				else if(dbNginx->nginxMode == LOAD){
 					/* 采用 Consistent Hash 算法分配给子进程 */
 					string SerName = dbNginx->csshash->getServerName(nginxs[sockfd].clientName);
 					int serverfd = dbNginx->mSerNamefd[SerName];
@@ -360,6 +363,9 @@ void Processpool::runChild() {
 	               			nginxs[serverfd].Addfd2Write();
 	               		}
 					}
+				}
+				else{
+					LOG(ERROR) << "nginxModee = " << dbNginx->nginxMode;
 				}
 			}
 		}
@@ -418,7 +424,7 @@ void Processpool::runParent() {
 		//虚拟节点20个
 		dbNginx->csshash->addNode(dbNginx->nginxName + "|" + to_string(subProcess[i].pipefd[0]), 20);
 		nginxs[subProcess[i].pipefd[0]].sockfd = subProcess[i].pipefd[0];
-		LOG(DEBUG) << "subProcess[i].pipfd[0] = " << subProcess[i].pipefd[0];
+		// LOG(DEBUG) << "subProcess[i].pipfd[0] = " << subProcess[i].pipefd[0];
 		// 监听 - 对于本程序没啥用 child dont send to father
 		// [subProcess[i].pipefd[0]].Addfd2Read();
 	}
@@ -468,7 +474,7 @@ void Processpool::runParent() {
 			if(dbNginx->status == FOLLOWER && dbNginx->leaderName[ENSURE].empty()){
 				dbNginx->status = CANDIDATE;
 				dbNginx->VoteSend();
-				// LOG(DEBUG) << "vote for self ";
+				LOG(DEBUG) << "vote for self ";
 			}
 			else if(dbNginx->status == CANDIDATE && dbNginx->leaderName[ENSURE].empty()){
 				dbNginx->status = FOLLOWER;
@@ -509,7 +515,7 @@ void Processpool::runParent() {
 				if(!nginxs[subProcess[i].pipefd[0]].WriteProto(CliConNo, data)){
 					nginxs[subProcess[i].pipefd[0]].Addfd2Write();
 				}
-                LOG(DEBUG) << "client request to child " << i;
+                // LOG(DEBUG) << "client request to child " << i;
 			}
 			/* 服务器连接 */
 			else if(sockfd == dbNginx->lisSerfd){

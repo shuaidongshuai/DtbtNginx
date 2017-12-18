@@ -60,21 +60,21 @@ public:
 	enum LINE_STATUS { LINE_OK = 0, LINE_BAD, LINE_OPEN };//读取状态：1.读到完整行 2.行出错 3.数据不完整
 	enum CHECK_STATE { CHECK_STATE_REQUESTLINE = 0, CHECK_STATE_HEADER, CHECK_STATE_CONTENT };//正在分析请求行、头部字段、内容
 	/*文件名最大长度*/
-	const int FILENAME_LEN = 200;
+	static const int FILENAME_LEN;
 	/* request 最大长度 */
-	const int MAXHTTPREQUEST = 4 * 1024;//占时设置4k
-	const char* httpFileRoot = "/var/www/html/";//到时候可以写入配置文件----
+	static const int MAXHTTPREQUEST;//占时设置4k
+	static const char* httpFileRoot;//到时候可以写入配置文件----
 	/* 响应码 */
-	const char* ok_200_title = "OK";
-	const char* error_301_title = "Found Other";
-	const char* error_400_title = "Bad Request";
-	const char* error_400_form = "Your request has bad syntax or is inherently impossible to satisfy.\n";
-	const char* error_403_title = "Forbidden";
-	const char* error_403_form = "You do not have permission to get file from this server.\n";
-	const char* error_404_title = "Not Found";
-	const char* error_404_form = "The requested file was not found on this server.\n";
-	const char* error_500_title = "Internal Error";
-	const char* error_500_form = "There was an unusual problem serving the requested file.\n";
+	static const char* ok_200_title;
+	static const char* error_301_title;
+	static const char* error_400_title;
+	static const char* error_400_form;
+	static const char* error_403_title;
+	static const char* error_403_form;
+	static const char* error_404_title;
+	static const char* error_404_form;
+	static const char* error_500_title;
+	static const char* error_500_form;
     /* 解析到的位置 */
     size_t checkedIdx;
     /* 正在解析的行的起始位置 */
@@ -134,8 +134,8 @@ public:
 	bool WriteHttpHeader(HTTP_CODE ret);
 	bool AddResponse( const char* format, ... );
 	bool AddStatusLine( int status, const char* title );
-	bool AddHeaders( int content_len, const char *location = NULL);
-	bool AddContentLength( int content_len );
+	bool AddHeaders( int fileLen, const char *location = NULL);
+	bool AddContentLength( int fileLen );
     bool AddContent( const char* content );
     bool AddLinger();
 	bool AddLocation(const char *otherUrl);
@@ -149,6 +149,7 @@ public:
 	void SetTimeout(int keepAliveInterval, int activeInterval);
 
 	void CloseSocket();
+	void ClearResponse();
 
 	void AcceptNginx(int sockfd);
 	void AcceptServer(int sockfd, string &name);
