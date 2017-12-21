@@ -1,4 +1,4 @@
-﻿GTEST_CPPFLAG1=-IconsHash
+GTEST_CPPFLAG1=-IconsHash
 GTEST_CPPFLAG2=-Ieasyloggingpp
 GTEST_CPPFLAG3=-Iproto
 LIB=lib

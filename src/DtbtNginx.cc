@@ -19,13 +19,14 @@ DtbtNginx::DtbtNginx():status(FOLLOWER), voteNum(0){
 DtbtNginx::~DtbtNginx(){
 	delete csshash;
 }
-
+/* read configuration */
 bool DtbtNginx::ReadDtbtNginxConf(string num, string confSrc){
 	if(num.empty() || confSrc.empty())
 		return false;
 	string hostPre("DtbtNginx");
 	string lisSerPre("ListenNginx");
 	string lisCliPre("ListenClient");
+	string backServer("BackServer");
 	ReadConf rc;
 	rc.read(confSrc);
 	int idx;
@@ -65,6 +66,11 @@ bool DtbtNginx::ReadDtbtNginxConf(string num, string confSrc){
 		else if(hostPre == string(key.begin(), key.end() - 1)){
 			otherName.push_back(ip + " " + port);
 			LOG(DEBUG) << "DtbtNginx = " << ip + " " + port;
+		}
+		//后台服务器
+		else if(backServer == string(key.begin(), key.end() - 1)){
+			backServers.push_back(ip + " " + port);
+			LOG(DEBUG) << "BackServer = " << ip + " " + port;
 		}
 	}
 	allNginxNum = otherName.size() + 1;
@@ -106,14 +112,15 @@ int DtbtNginx::CreateListen(string ip, int port) {
 void DtbtNginx::ConOtherNginx(){
 	aliveNginxfd.clear();
 	struct sockaddr_in servaddr;
-	int sockfd;
-	int size = otherName.size();
-	for(int i = 0; i < size; ++i){
-		int idx = otherName[i].find(' ');
-		string ipStr(otherName[i], 0, idx);
-		string portStr(otherName[i], idx + 1, otherName[i].size());
+	int sockfd, idx, port;
+	string name;
+	for(auto it = otherName.begin(); it != otherName.end(); ++it){
+		name = *it;
+		idx = name.find(' ');
+		string ipStr(name, 0, idx);
+		string portStr(name, idx + 1, name.size());
 		const char *ip = ipStr.c_str();
-		int port = atoi(portStr.c_str());
+		port = atoi(portStr.c_str());
 		if(0 == port){
 			LOG(ERROR) << "ConOtherNginx transform port error";
 			continue;
@@ -134,7 +141,7 @@ void DtbtNginx::ConOtherNginx(){
 			//记录集群存活的节点fd
 			aliveNginxfd.push_back(sockfd);
 			//记录name(ip port)
-			nginxs[sockfd].clientName = otherName[i];
+			nginxs[sockfd].clientName = name;
 			//记录fd
 			nginxs[sockfd].sockfd = sockfd;
 			//设置超时时间
@@ -142,11 +149,57 @@ void DtbtNginx::ConOtherNginx(){
 			//监听读事件
 			nginxs[sockfd].Addfd2Read();
 			
-			LOG(DEBUG) << "connect -> " << otherName[i];
+			LOG(DEBUG) << "connect -> " << name;
 		}
 	}
 }
 
+void DtbtNginx::ConServer(){
+	struct sockaddr_in servaddr;
+	int sockfd, idx, port;
+	string name;
+	for(auto it = backServers.begin(); it != backServers.end(); ++it){
+		/* 连接还未连接的服务器 */
+		name = *it;
+		if(mSerNamefd[name] <= 0){
+			idx = name.find(' ');
+			string ipStr(name, 0, idx);
+			string portStr(name, idx + 1, name.size());
+			const char *ip = ipStr.c_str();
+			port = atoi(portStr.c_str());
+			if(0 == port){
+				LOG(ERROR) << "ConServer transform port error";
+				continue;
+			}
+			if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+				LOG(ERROR) << "ConOtherNginx create socket error";
+				return;
+			}
+			bzero(&servaddr,sizeof(servaddr));
+			servaddr.sin_family = AF_INET;
+			inet_pton(AF_INET, ip, &servaddr.sin_addr);
+			servaddr.sin_port = htons(port);
+
+			if(connect(sockfd,(struct sockaddr*)&servaddr,sizeof(servaddr)) == -1) {
+				LOG(WARNING) << "Not Connected:" << ip << ":" << port; 
+			}
+			else{
+				/* 记录fd name */
+				mSerNamefd[name] = sockfd;
+				mSerfdName[sockfd] = name;
+				nginxs[sockfd].clientName = name;
+				nginxs[sockfd].sockfd = sockfd;
+				/* 设置超时时间 */
+				nginxs[sockfd].SetTimeout(2, 6);//心跳2s、断开6s
+				/* 监听读事件 */
+				nginxs[sockfd].Addfd2Read();
+				/* 加入到 consistent hash */
+				csshash->addNode(name);
+				LOG(DEBUG) << "connect -> " << ip << ":" << port << " fd=" << sockfd;
+			}
+		}
+	}
+}
 /* 发起投票 */
 void DtbtNginx::VoteSend(){
 	//vote for myself
@@ -195,44 +248,71 @@ void DtbtNginx::SynchDataSend(){
 void DtbtNginx::AckData2FollowerSend(){
 
 }
+
+bool DtbtNginx::checkLastActive(int fd, int curTime){
+	if(nginxs[fd].activeInterval != -1 && curTime - nginxs[fd].lastActive >= nginxs[fd].activeInterval){
+		return true;
+	}
+	return false;
+}
+/* 检测心跳 超时并发送 */
+void DtbtNginx::checkKeepAlive(int fd, int curTime){
+	if(nginxs[fd].keepAliveInterval != -1 &&
+				curTime - nginxs[fd].lastKeepAlive >= nginxs[fd].keepAliveInterval)
+	{
+		/* alive */
+		string data;
+		KeepAlive ka;
+		ka.SerializeToString(&data);
+		if(!nginxs[fd].WriteProto(KeepAliveNo, data)){
+			nginxs[fd].Addfd2Write();
+		}
+		else{
+			nginxs[fd].Addfd2Read();
+		}
+		nginxs[fd].lastKeepAlive = curTime;
+		// LOG(DEBUG) << "send keepAlive to " << nginxs[fd].clientName;
+	}
+}
 /* check and send keepAlive to all Nginx */
-void DtbtNginx::SendKeepAlive(){
+void DtbtNginx::SendKeepAlive2Nginx(){
 	int curTime = time(0);
 	int fd;
-	for(vector<int>::iterator it = aliveNginxfd.begin(); it != aliveNginxfd.end();){
+	for(auto it = aliveNginxfd.begin(); it != aliveNginxfd.end();){
 		fd = *it;
 		/* check keepAlive before check lastActive */
-		if(nginxs[fd].activeInterval != -1 && curTime - nginxs[fd].lastActive >= nginxs[fd].activeInterval){
-			/* check whether Leader */
-			if(leaderName[ENSURE] == nginxs[fd].clientName){
-				//清空Leader
-				leaderName[ENSURE].clear();
-				version[ENSURE] = 0;
-				//需要重新启动投票定时器
-				TimeHeapAddRaft();
-			}
+		if(checkLastActive(fd, curTime)){
+			nginxs[fd].CloseNginx();
 			it = aliveNginxfd.erase(it);
-			LOG(DEBUG) << nginxs[fd].clientName << " 超时 curTime=" <<
-			 curTime << " lastActive=" << nginxs[fd].lastActive << " activeInterval=" << nginxs[fd].activeInterval;
-			nginxs[fd].CloseSocket();
 		}
 		else{
 			/* check keepAlive */
-			if(nginxs[fd].keepAliveInterval != -1 &&
-						 curTime - nginxs[fd].lastKeepAlive >= nginxs[fd].keepAliveInterval){
-				/* alive */
-				string data;
-				KeepAlive ka;
-				ka.SerializeToString(&data);
-				if(!nginxs[fd].WriteProto(KeepAliveNo, data)){
-					nginxs[fd].Addfd2Write();
-				}
-				else{
-					nginxs[fd].Addfd2Read();
-				}
-				nginxs[fd].lastKeepAlive = curTime;
-				// LOG(DEBUG) << "send keepAlive to " << nginxs[fd].clientName;
-			}
+			checkKeepAlive(fd, curTime);
+			++it;
+		}
+	}
+}
+
+void DtbtNginx::SendKeepAlive2SC(){
+	int curTime = time(0);
+	int serfd, clifd;
+	/* 检查client server */
+	for(auto it = keepSession[SUBMIT].begin(); it != keepSession[SUBMIT].end();){
+		serfd = it->first;
+		clifd = it->second;
+		
+		if(checkLastActive(serfd, curTime)){
+			nginxs[serfd].CloseServer();
+		}
+		else{
+			checkKeepAlive(serfd, curTime);
+		}
+		if(checkLastActive(clifd, curTime)){
+			nginxs[clifd].ClearClient();
+			keepSession[SUBMIT].erase(it++);
+		}
+		else{
+			checkKeepAlive(clifd, curTime);
 			++it;
 		}
 	}
@@ -260,6 +340,15 @@ int DtbtNginx::TimeHeapGet(){
 void DtbtNginx::TimeHeapAddRaft(){
 	int voteTime = rand() % raftVoteTime + raftVoteTime;
 	TimeHeapAdd(voteTime);
+}
+/* 根据server找到client */
+int DtbtNginx::FindClifdBySerfd(int sockfd){
+	for(auto it = sSer2Cli.begin(); it != sSer2Cli.end(); ++it){
+		if(it->first == sockfd){
+			return it->second;
+		}
+	}
+	return -1;
 }
 
 /* 参数：
@@ -292,7 +381,7 @@ int main(int argc, char **argv){
 	string lisCliPortStr(dbNginx->lisCliName, idx + 1, dbNginx->lisCliName.size());
 	int lisCliPort = atoi(lisCliPortStr.c_str());
 	dbNginx->lisClifd = dbNginx->CreateListen(lisCliIp, lisCliPort);
-	
+
 	/* 启动一个进程池  */
 	Processpool *DtbiNginxProcesspool = Processpool::CreateProcesspool(1, true);//1.子进程个数
 	if(DtbiNginxProcesspool) {

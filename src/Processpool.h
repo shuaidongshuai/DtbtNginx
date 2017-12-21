@@ -75,8 +75,6 @@ protected:
     void runChild();
 	/*设置非阻塞*/
 	int SetNoBlocking(int fd);
-	/*epoll内核事件表中删除fd上的所有注册事件*/
-	void removefd( int epollfd, int fd );
 public:
 	/*根据监听套接字创建进程池 默认有4个子进程*/
 	Processpool(int processNumber);
@@ -159,11 +157,6 @@ int Processpool::SetNoBlocking(int fd) {
 	return fcntl(fd, F_SETFL, new_option);//如果出错，所有命令都返回-1
 }
 
-void Processpool::removefd( int epollfd, int fd ) {
-	epoll_ctl(epollfd,EPOLL_CTL_DEL,fd,NULL);
-	close(fd);
-}
-
 void Processpool::sig_handler( int sig ) {
     send( sigPipefd[1], ( char * )&sig, 1, 0 );				//向sigPipefd[1]发送一个字节的信号
 }
@@ -243,7 +236,7 @@ void Processpool::runChild() {
     int pipefd = subProcess[childIdx].pipefd[ 1 ];
     nginxs[pipefd].sockfd = pipefd;
     nginxs[pipefd].Addfd2Read();
-	
+
 	epoll_event events[ MAX_EVENT ];
     int number = 0;
     int ret = -1;
@@ -308,11 +301,42 @@ void Processpool::runChild() {
 			}
 			/* 服务器响应回来了 */
 			else if(!dbNginx->mSerfdName[sockfd].empty() && events[i].events & EPOLLIN){
+				LOG(DEBUG) << "服务器响应来到 fd=" << sockfd;
 				if(nginxs[sockfd].sockfd == -1){
             		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
             		continue;
             	}
+				//先读完请求
+				if(!nginxs[sockfd].ReadHttpResponse()){
+					nginxs[sockfd].Addfd2Read();
+					continue;
+				}
+				if(-1 == nginxs[sockfd].sockfd){
+					continue;
+				}
+				int readSize = nginxs[sockfd].readIdx;
+				nginxs[sockfd].readIdx = 0;
+				/* 直接发给client */
+            	int clifd = dbNginx->FindClifdBySerfd(sockfd);
+            	if(-1 == clifd){
+            		LOG(WARNING) << "找不到client serfd=" << sockfd;
+            		continue;
+            	}
+            	dbNginx->sSer2Cli.pop_front();
 
+            	LOG(DEBUG) << "response send to clifd=" << clifd;
+
+			    if(nginxs[clifd].WriteHttpResponse()){
+			    	nginxs[clifd].Addfd2Read();
+			    	/* 注意：
+			    	在这里关闭并不是很好，应该每次写都进行判断，为了不让代码变复杂就放在这里了
+			    	*/
+			    	if(!nginxs[clifd].keepLinger)
+			    		nginxs[clifd].CloseSocket();	
+			    }
+			    else{
+			    	nginxs[sockfd].Addfd2Write();
+			    }
 			}
 			/* 客服端请求来到 */
 			else if( events[i].events & EPOLLIN ) {
@@ -322,7 +346,7 @@ void Processpool::runChild() {
             		continue;
             	}
 				//先读完请求
-				if(!nginxs[sockfd].ReadHttp()){
+				if(!nginxs[sockfd].ReadHttpRequest()){
 					nginxs[sockfd].Addfd2Read();
 					continue;
 				}
@@ -332,11 +356,14 @@ void Processpool::runChild() {
 				int readSize = nginxs[sockfd].readIdx;
 				nginxs[sockfd].readIdx = 0;
 
+				/* web服务器模式 */
 				if(dbNginx->nginxMode == WEB){
 				    /* 正真的写回 client */
 				    if(nginxs[sockfd].WriteHttpResponse()){
 				    	nginxs[sockfd].Addfd2Read();
-				    	//webbench测试使用
+				    	/* 注意：
+				    	在这里关闭并不是很好，应该每次写都进行判断，为了不让代码变复杂就放在这里了
+				    	*/
 				    	if(!nginxs[sockfd].keepLinger)
 				    		nginxs[sockfd].CloseSocket();	
 				    }
@@ -344,25 +371,52 @@ void Processpool::runChild() {
 				    	nginxs[sockfd].Addfd2Write();
 				    }
 				}
+				/* 负载模式 */
 				else if(dbNginx->nginxMode == LOAD){
+					/* 首先尝试连接后台服务器，有些服务器可能还未被连接 */
+					dbNginx->ConServer();
 					/* 采用 Consistent Hash 算法分配给子进程 */
 					string SerName = dbNginx->csshash->getServerName(nginxs[sockfd].clientName);
+					if(SerName.empty()){
+						nginxs[sockfd].CacheResponseHeader();
+						if(nginxs[sockfd].WriteHttpResponse()){
+					    	nginxs[sockfd].Addfd2Read();
+					    	/* 注意：
+					    	在这里关闭并不是很好，应该每次写都进行判断，为了不让代码变复杂就放在这里了
+					    	*/
+					    	if(!nginxs[sockfd].keepLinger)
+					    		nginxs[sockfd].CloseSocket();	
+					    }
+						LOG(WARNING) << "all server dont alive";
+						continue;
+					}
 					int serverfd = dbNginx->mSerNamefd[SerName];
-					//如果不存在需要主动和Server建立连接--waiting for you
 					if(serverfd <= 0){
 						LOG(ERROR) << "server dont alive : " << SerName;
+						continue;
 					}
-					else{
-						//发给服务器
-						string data = string(nginxs[serverfd].readBuf, readSize);
-	                	if(nginxs[serverfd].WriteWithoutProto(data)) {
-	                		//如果已经写完了 那么重新监听read
-	                		nginxs[serverfd].Addfd2Read();
-	               		}
-	               		else{
-	               			nginxs[serverfd].Addfd2Write();
-	               		}
+					/* 进行会话保持 */
+					int &serfd = dbNginx->keepSession[SUBMIT][sockfd];
+					if(0 == serfd){
+						serfd = serverfd;
 					}
+					else if(serfd != serverfd){
+						LOG(WARNING) << "发生节点迁移：" << nginxs[sockfd].clientName << "->" 
+							<< nginxs[serfd].clientName	<< " change to ->" << SerName;
+						serfd = serverfd;
+					}
+					dbNginx->sSer2Cli.push_back(make_pair(serverfd, sockfd));
+
+					/* 发给服务器 */
+					string data = string(nginxs[sockfd].readBuf, readSize);
+                	if(nginxs[serverfd].WriteWithoutProto(data)) {
+                		nginxs[serverfd].Addfd2Read();
+               		}
+               		else{
+               			nginxs[serverfd].Addfd2Write();
+               		}
+               		// LOG(DEBUG) << "data:" << data << " size=" << data.size();
+               		LOG(DEBUG) << "client -> server : " << nginxs[sockfd].clientName << " -> " << nginxs[serverfd].clientName;
 				}
 				else{
 					LOG(ERROR) << "nginxModee = " << dbNginx->nginxMode;
@@ -382,7 +436,7 @@ void Processpool::runChild() {
 1.监听一个新的端口，用于DibtNginx通信
 2.连接集群中的Nginx
 3.给子进程发送 accept 消息
-4.给子进程发送 数据同步 消息
+4.给子进程发送 数据同步 消息(因为数据不共享，所以需要发送消息进行同步，如果共享牵涉锁，不推荐)
 */
 template<class T>
 void Processpool::runParent() {
@@ -421,11 +475,9 @@ void Processpool::runParent() {
 
 	/* 将子进程添加到ConsistentHash */
 	for(int i = 0; i < processNumber; ++i){
-		//虚拟节点20个
-		dbNginx->csshash->addNode(dbNginx->nginxName + "|" + to_string(subProcess[i].pipefd[0]), 20);
 		nginxs[subProcess[i].pipefd[0]].sockfd = subProcess[i].pipefd[0];
 		// LOG(DEBUG) << "subProcess[i].pipfd[0] = " << subProcess[i].pipefd[0];
-		// 监听 - 对于本程序没啥用 child dont send to father
+		/* Addfd2Read useless for The current program, child dont send to father */
 		// [subProcess[i].pipefd[0]].Addfd2Read();
 	}
 	
@@ -486,7 +538,7 @@ void Processpool::runParent() {
 		}
 
 		/* 父进程只需要保证 DtbtNginx心跳就行了 */
-		dbNginx->SendKeepAlive();
+		dbNginx->SendKeepAlive2Nginx();
 
 		/* deal events */
 		for(int i = 0; i < number; i++)	{
@@ -515,7 +567,7 @@ void Processpool::runParent() {
 				if(!nginxs[subProcess[i].pipefd[0]].WriteProto(CliConNo, data)){
 					nginxs[subProcess[i].pipefd[0]].Addfd2Write();
 				}
-                // LOG(DEBUG) << "client request to child " << i;
+                // LOG(DEBUG) << "client request send to child " << i;
 			}
 			/* 服务器连接 */
 			else if(sockfd == dbNginx->lisSerfd){

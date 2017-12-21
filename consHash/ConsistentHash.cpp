@@ -1,6 +1,6 @@
 ﻿#include "ConsistentHash.h"
 
-ConsistentHash::ConsistentHash(HashFunc *func){
+ConsistentHash::ConsistentHash(HashFunc *func):cout(0) {
 	if (func){
 		hashFunc = func;
 	}
@@ -22,6 +22,7 @@ bool ConsistentHash::addNode(std::string nodeName, int vNum){
 	//对真实节点进行push
 	if (!addRealNode(node))
 		return false;
+	++cout;
 	return true;
 }
 bool ConsistentHash::delNode(std::string nodeName){
@@ -32,6 +33,7 @@ bool ConsistentHash::delNode(std::string nodeName){
 		return false;
 	if (!delVirNode(node))
 		return false;
+	--cout;
 	//释放内存
 	delete node;
 	return true;
@@ -132,8 +134,10 @@ Node *ConsistentHash::findRealNode(std::string &nodeName){
 	return node;
 }
 std::string ConsistentHash::getServerName(std::string cliName){
-	/* 根据客户端的ip找到可以提供服务的节点 */
 	std::string serName;
+	if(0 == cout)
+		return serName;
+	/* 根据客户端的ip找到可以提供服务的节点 */
 	int cliKey = hashFunc->GetKey(cliName);
 	auto it = allNode.begin();
 	/* 找到第一个比cliKey大的节点 */

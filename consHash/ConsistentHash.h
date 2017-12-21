@@ -1,4 +1,4 @@
-#ifndef ConsistentHash_H
+ï»¿#ifndef ConsistentHash_H
 #define ConsistentHash_H
 #include <map>
 #include <list>
@@ -13,31 +13,32 @@ class ConsistentHash
 public:
 	ConsistentHash(HashFunc *func = nullptr);
 	~ConsistentHash();
-	bool addNode(std::string nodeName, int vNum);
+	bool addNode(std::string nodeName, int vNum = 50);
 	bool delNode(std::string nodeName);
-	//¸ù¾İclientÕÒ¶ÔÓ¦µÄserver
+	//æ ¹æ®clientæ‰¾å¯¹åº”çš„server
 	std::string getServerName(std::string cliName);
-	//»ñÈ¡ÕæÊµ½Úµã¸öÊı
+	//è·å–çœŸå®èŠ‚ç‚¹ä¸ªæ•°
 	int getRealNum();
-	//»ñÈ¡Ä³¸öÕæÊµ½ÚµãµÄĞéÄâ½Úµã¸öÊı
+	//è·å–æŸä¸ªçœŸå®èŠ‚ç‚¹çš„è™šæ‹ŸèŠ‚ç‚¹ä¸ªæ•°
 	int getVirNum(std::string serName);
-	//»ñÈ¡ËùÓĞ½ÚµãÊıÁ¿
+	//è·å–æ‰€æœ‰èŠ‚ç‚¹æ•°é‡
 	int getAllNodeNum();
-	//´òÓ¡½Úµã£¨¹©²âÊÔÊ¹ÓÃ£©
+	//æ‰“å°èŠ‚ç‚¹ï¼ˆä¾›æµ‹è¯•ä½¿ç”¨ï¼‰
 	std::string showTime();
-	//Í³¼Æ»·ÉÏËùÓĞ½Úµã·Ö²¼Çé¿ö£¨¹©²âÊÔÊ¹ÓÃ£©
+	//ç»Ÿè®¡ç¯ä¸Šæ‰€æœ‰èŠ‚ç‚¹åˆ†å¸ƒæƒ…å†µï¼ˆä¾›æµ‹è¯•ä½¿ç”¨ï¼‰
 	std::string statDist();
 private:
 	bool addRealNode(Node *node);
 	bool addVirNode(Node *node);
 	bool delRealNode(Node *node);
 	bool delVirNode(Node *node);
-	/* É¾³ırealNodeÖĞµÄ½Úµã ²¢ ·µ»ØÕâ¸ö½Úµã */
+	/* åˆ é™¤realNodeä¸­çš„èŠ‚ç‚¹ å¹¶ è¿”å›è¿™ä¸ªèŠ‚ç‚¹ */
 	Node *findRealNode(std::string &nodeName);
 private:
-	std::multimap<unsigned int, std::string> allNode;//ÓÃmultimapÀ´´¦Àíhash³åÍ»
+	std::multimap<unsigned int, std::string> allNode;//ç”¨multimapæ¥å¤„ç†hashå†²çª
 	std::list<Node *> realNode;
 	HashFunc *hashFunc;
+	int cout;//èŠ‚ç‚¹ä¸ªæ•°
 };
 
 #endif

@@ -66,45 +66,65 @@ bool Nginx::Read(){
 	
 }
 /* 读http请求 true代表解析完一个请求 */
-bool Nginx::ReadHttp(){
+bool Nginx::ReadHttpRequest(){
 	lastActive = time(0);//记录活跃的时间
 	int nread = 0;
-	int maxRead = MAXHTTPREQUEST;
 	while(readIdx < readBufSize){
 		nread = read(sockfd, readBuf + readIdx, readBufSize - readIdx);
 		if (nread == -1) {
 			if(errno == EAGAIN){
 				return false;
 			}
-			LOG(INFO) << "客服端异常退出";
+			LOG(INFO) << "客服端异常退出" << " fd=" << sockfd;
 			CloseSocket();
 			return true;
 		}
 		if(nread == 0) {
-			// LOG(INFO) << "客服端正常退出";
+			LOG(INFO) << "客服端正常退出" << " fd=" << sockfd;
 			CloseSocket();
 			return true;
 		}
 		readIdx += nread;
+
 		/* 读一次就解析一次 */
 		HTTP_CODE read_ret = ParseRequest();
 	    if ( read_ret != NO_REQUEST ) {
 	    	/* 缓存响应头部 */
-   			bool write_ret = WriteHttpHeader( read_ret );
-			if ( ! write_ret ) {
-				LOG(WARNING) << "缓存响应头部 false";
-				CloseSocket();
-			}
-			else{
-				// LOG(DEBUG) << "parse success";
-				ClearResponse();
-			}
+	    	CacheResponseHeader(read_ret);
 	    	return true;
 	    }
 	}
 	if(readIdx > readBufSize){
 		LOG(WARNING) << "request len > readBufSize";
 		CloseSocket();
+	}
+	return true;
+}
+
+bool Nginx::ReadHttpResponse(){
+	lastActive = time(0);//记录活跃的时间
+	int nread = 0;
+	while(readIdx < readBufSize){
+		nread = read(sockfd, readBuf + readIdx, readBufSize - readIdx);
+		if (nread == -1) {
+			if(errno == EAGAIN){
+				return false;
+			}
+			LOG(INFO) << "客服端异常退出" << " fd=" << sockfd;
+			CloseSocket();
+			return true;
+		}
+		if(nread == 0) {
+			LOG(INFO) << "客服端正常退出" << " fd=" << sockfd;
+			CloseSocket();
+			return true;
+		}
+		readIdx += nread;
+
+		/* 读一次就解析一次 */
+	    if (ParseResponse()) {
+	    	return true;
+	    }
 	}
 	return true;
 }
@@ -169,14 +189,13 @@ Nginx::HTTP_CODE Nginx::ParseRequest(){
 }
 /*解析请求消息行*/
 Nginx::HTTP_CODE Nginx::ParseRequestLine(char *text) {
-	char *temp = strpbrk( text, " \t" );
+	char *temp = strpbrk( text, " \t" );//在源字符串中找出最先含有搜索字符串中任一字符的位置并返回
     if ( ! temp ) {
     	LOG(INFO) << "RequestLine error";
         return BAD_REQUEST;
     }
-    *temp++ = '\0';
     char* method = text;
-    if ( strcasecmp( method, "GET" ) == 0 ) {//忽略大小写比较字符串
+    if ( strncasecmp( method, "GET", 3) == 0 ) {//忽略大小写比较字符串
     	//占时只支持get请求
         httpMethod = GET;
     }
@@ -189,10 +208,12 @@ Nginx::HTTP_CODE Nginx::ParseRequestLine(char *text) {
     if ( ! httpVer ) {
         return BAD_REQUEST;
     }
-    *httpVer++ = '\0';
+    ++httpVer;
     httpVer += strspn( httpVer, " \t" );
-    if ( strcasecmp( httpVer, "HTTP/1.1" ) != 0 && strcasecmp( httpVer, "HTTP/1.0" ) != 0) {
-    	LOG(INFO) << "不支持:" << httpVer << " http 版本";
+    if ( strncasecmp( httpVer, "HTTP/1.1", 8) != 0 &&
+    	 strncasecmp( httpVer, "HTTP/1.0", 8) != 0) 
+    {
+    	LOG(INFO) << "不支持:" << string(httpVer, 8) << " http 版本";
         return BAD_REQUEST;
     }
 
@@ -214,11 +235,11 @@ Nginx::HTTP_CODE Nginx::ParseRequestLine(char *text) {
 	fileName = httpFileRoot;
 
 	/* 注意：我们默认请求的是 index.html */
-	if(*temp == '\0'){
+	if(*temp == ' ' || *temp == '\t'){
 		fileName += "index.html";
 	}
 	else{
-		fileName += temp;
+		fileName += string(temp, httpVer - temp - 1);
 	}
 	// LOG(DEBUG) << "fileName = " << fileName << " temp = " << *temp;
 
@@ -230,7 +251,7 @@ Nginx::HTTP_CODE Nginx::ParseRequestLine(char *text) {
 }
 /* 请求消息头-只解析必出现的几个头 */
 Nginx::HTTP_CODE Nginx::ParseRequestHeader(char *text){
-	if( text[ 0 ] == '\0' ) {
+	if( text[ 0 ] == '\r' && text[1] == '\n') {
         if ( httpMethod == HEAD ) {
             return GET_REQUEST;
         }
@@ -240,10 +261,10 @@ Nginx::HTTP_CODE Nginx::ParseRequestHeader(char *text){
         }
         return GET_REQUEST;
     }
-    else if ( strncasecmp( text, "Connection:", 11 ) == 0 ) {
+    else if ( strncasecmp( text, "Connection:", 11) == 0 ) {
         text += 11;
         text += strspn( text, " \t" );
-        if ( strcasecmp( text, "keep-alive" ) == 0 ) {
+        if ( strncasecmp( text, "keep-alive", 10) == 0 ) {
             keepLinger = true;
         }
     }
@@ -267,7 +288,6 @@ Nginx::HTTP_CODE Nginx::ParseRequestHeader(char *text){
 Nginx::HTTP_CODE Nginx::ParseRequestContent(char *text){
 	/* 已经读到数据 >= 请求消息体长度 + 已经解析的长度 (消息体是不需要解析的) */
     if ( readIdx >= ( contentLength + checkedIdx ) ) {
-        text[ contentLength ] = '\0';
         return GET_REQUEST;
     }
 	/* 数据不完整还需要读 */
@@ -284,8 +304,7 @@ Nginx::LINE_STATUS Nginx::ParseBlankLine(){
             }
 			/* 如果是以 \r\n 结尾说明读到了完整行 */
             else if ( readBuf[ checkedIdx + 1 ] == '\n' ) {
-                readBuf[ checkedIdx++ ] = '\0';
-                readBuf[ checkedIdx++ ] = '\0';
+            	checkedIdx += 2;
                 return LINE_OK;
             }
 			/* 除此之外都是行出错 */
@@ -294,8 +313,7 @@ Nginx::LINE_STATUS Nginx::ParseBlankLine(){
 		/* 正如上面那样，有可能这一次读到的就是'\n' */
         else if( temp == '\n' ) {
             if( ( checkedIdx > 1 ) && ( readBuf[ checkedIdx - 1 ] == '\r' ) ) {
-                readBuf[ checkedIdx - 1 ] = '\0';
-                readBuf[ checkedIdx++ ] = '\0';
+            	++checkedIdx;
                 return LINE_OK;
             }
             return LINE_BAD;
@@ -388,7 +406,18 @@ bool Nginx::WriteHttpResponse(){
 	return true;
 }
 
-//写响应 行 头 体
+/* 缓存响应 行 头 体 */
+void Nginx::CacheResponseHeader(HTTP_CODE ret){
+	bool write_ret = WriteHttpHeader( ret );
+	if ( ! write_ret ) {
+		LOG(WARNING) << "缓存响应头部 false";
+		CloseSocket();
+	}
+	else{
+		// LOG(DEBUG) << "parse success";
+		ClearResponse();
+	}
+}
 bool Nginx::WriteHttpHeader(HTTP_CODE ret){
 	//修改写指针
 	writeIdx = 0;
@@ -502,6 +531,26 @@ bool Nginx::AddBlankLine() {
 bool Nginx::AddContent( const char* content ) {
     return AddResponse( "<html><body><p>%s</p></body></html>", content );
 }
+/* 由于服务器是我们可以掌控的，不会发一些不合法的东西，所以就简单的解析就好 */
+bool Nginx::ParseResponse() {
+    if(startContent == NULL){
+    	startContent = strstr(readBuf, "\r\n\r\n");
+    	startContent += 4;
+    	char *subStr = strstr(readBuf, "Content-Length: ");
+    	if(NULL == subStr){
+    		LOG(ERROR) << "response no Content-Length:";
+    		return true;//消息有问题，直接发了，不然一直在这里。这种情况是不应该发生的
+    	}
+    	subStr += strlen("Content-Length: ");
+    	char *temp = strpbrk( subStr, "\r\n" );
+    	stringstream oss;
+    	oss << string(subStr, temp - subStr);
+    	oss >> contentLength;
+    }
+    /* 一直要读完 */
+    return readIdx >= ((startContent - readBuf) + contentLength) ? true : false;
+}
+
 /*
 所有数据都是 cmd+len+protobuf  要按照这个来读 cmd 和 len 都是 int
 返回false说明没有读完，接着读。true说明不需要继续读了 
@@ -518,12 +567,12 @@ bool Nginx::ReadProto(){
 				if(errno == EAGAIN){
 					return false;
 				}
-				LOG(INFO) << "客服端异常退出";
+				LOG(INFO) << "客服端异常退出" << " fd=" << sockfd;
 				CloseSocket();
 				return true;
 			}
 			if(nread == 0) {
-				LOG(INFO) << "客服端正常退出";
+				LOG(INFO) << "客服端正常退出" << " fd=" << sockfd;
 				CloseSocket();
 				return true;
 			}
@@ -547,12 +596,12 @@ bool Nginx::ReadProto(){
 			if (nread == -1) {
 				if(errno == EAGAIN)
 					return false;
-				LOG(INFO) << "客服端异常退出";
+				LOG(INFO) << "客服端异常退出" << " fd=" << sockfd;
 				CloseSocket();
 				return true;
 			}
 			if(nread == 0) {
-				LOG(INFO) << "客服端正常退出";
+				LOG(INFO) << "客服端正常退出" << " fd=" << sockfd;
 				CloseSocket();
 				return true;
 			}
@@ -602,7 +651,7 @@ bool Nginx::WriteWithoutProto(string &data){
 	writeIdx = 0;
 	if(writeLen > writeBufSize){
 		delete writeBuf;
-		writeBuf = new char[writeLen];
+		writeBuf = new char[writeLen + 1];
 		writeBufSize = writeLen;
 	}
 	strncpy(writeBuf, data.c_str(), writeLen);
@@ -615,7 +664,7 @@ bool Nginx::WriteProto(int cmd, string &data){
 	writeIdx = 0;//注意要修改writeIdx
 	if(writeLen > writeBufSize){
 		delete writeBuf;
-		writeBuf = new char[writeLen];
+		writeBuf = new char[writeLen + 1];
 		writeBufSize = writeLen;
 	}
 	strncpy(writeBuf, (char *)&cmd, sizeof(int));
@@ -898,7 +947,7 @@ void Nginx::CliCon(char *proto){
 		dbNginx->nginxs[connfd].SetTimeout(1, 3);//心跳1s、断开3s
 		//监听读事件
 		dbNginx->nginxs[connfd].Addfd2Read();
-		// LOG(DEBUG) << "connect a client: " << clientName << " fd=" << connfd;
+		LOG(DEBUG) << "connect a client: " << clientName << " fd=" << connfd;
 	}
 }
 
@@ -964,7 +1013,6 @@ void Nginx::Removefd() {
 	sockfd = -1;
 	eStatus = 0;
 	readIdx = 0;
-	CloseSocket();
 }
 //设置 心跳、断开 相对时间(s)
 void Nginx::SetTimeout(int keepAliveInterval, int activeInterval){
@@ -974,7 +1022,78 @@ void Nginx::SetTimeout(int keepAliveInterval, int activeInterval){
 	this->activeInterval = activeInterval;
 }
 
+bool Nginx::CheckServerClose(){
+	if(dbNginx->mSerfdName[sockfd].empty()){
+		return false;
+	}
+	return true;
+}
+
+bool Nginx::CheckNginxClose(){
+	for(auto it = dbNginx->aliveNginxfd.begin(); it != dbNginx->aliveNginxfd.end(); ++it){
+		if(*it == sockfd){
+			return true;
+		}
+	}
+	return false;
+}
+
 void Nginx::CloseSocket(){
+	if(CheckServerClose()){
+		CloseServer();
+		LOG(INFO) << "server : " << clientName << " close";
+	}
+	else if(CheckNginxClose()){
+		CloseNginx();
+		LOG(INFO) << "DtbtNginx : " << clientName << " close";
+	}
+	else{
+		ClearSocket();
+	}
+}
+
+void Nginx::CloseServer(){
+	/* 删除所有相关的会话保持 */
+	for(auto it = dbNginx->sSer2Cli.begin(); it != dbNginx->sSer2Cli.end(); ){
+		if(it->first == sockfd){
+			it = dbNginx->sSer2Cli.erase(it);
+		}
+		else{
+			++it;
+		}
+	}
+	/* 从 consistent hash 中删除 */
+	string &serName = dbNginx->mSerfdName[sockfd];
+	dbNginx->csshash->delNode(serName);
+	dbNginx->mSerNamefd[serName] = -1;
+	serName.clear();
+	CloseSocket();
+}
+
+void Nginx::CloseNginx(){
+	/* check whether Leader */
+	if(dbNginx->leaderName[ENSURE] == clientName){
+		//清空Leader
+		dbNginx->leaderName[ENSURE].clear();
+		dbNginx->version[ENSURE] = 0;
+		//需要重新启动投票定时器
+		dbNginx->TimeHeapAddRaft();
+	}
+	LOG(DEBUG) << clientName << " lastActive=" << lastActive << " activeInterval=" << activeInterval;
+	ClearSocket();
+}
+
+void Nginx::ClearClient(){
+	for(auto it = dbNginx->sSer2Cli.begin(); it != dbNginx->sSer2Cli.end(); ++it){
+		if(it->second == sockfd){
+			dbNginx->sSer2Cli.erase(it);
+			break;//note: if you accept multi-request from one clinet, you shoud traverse all
+		}
+	}
+	ClearSocket();
+}
+
+void Nginx::ClearSocket(){
 	close(sockfd);
 	sockfd = -1;
 	eStatus = 0;
@@ -992,10 +1111,10 @@ void Nginx::CloseSocket(){
     keepLinger = false;
     httpHost.clear();
     checkState = CHECK_STATE_REQUESTLINE;
+    startContent = NULL;
 }
 
 void Nginx::ClearResponse(){
-	readIdx = 0;
 	checkedIdx = 0;
     startLine = 0;
     httpVer = NULL;
@@ -1003,6 +1122,7 @@ void Nginx::ClearResponse(){
     keepLinger = false;
     httpHost.clear();
     checkState = CHECK_STATE_REQUESTLINE;
+    startContent = NULL;
 }
 
 void Nginx::AcceptNginx(int sockfd){
@@ -1031,6 +1151,7 @@ void Nginx::AcceptServer(int sockfd, string &name){
 	//加入map
 	dbNginx->mSerNamefd.insert(make_pair(clientName, sockfd));
 	dbNginx->mSerfdName.insert(make_pair(sockfd, clientName));
+	dbNginx->csshash->addNode(name);
 
 	LOG(DEBUG) << "AcceptServer:" << sockfd;
 }

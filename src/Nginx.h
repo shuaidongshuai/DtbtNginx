@@ -85,21 +85,24 @@ public:
     METHOD httpMethod;
 	/* 文件名-绝对路径 */
     string fileName;
-	/*http协议号*/
-    char* httpVer;
-	/*请求消息体长度*/
+	/* http协议号 */
+    char *httpVer;
+	/* 消息体长度 */
     size_t contentLength;
-	/*http是否保持连接*/
+	/* http是否保持连接 */
     bool keepLinger;
     /* http host name */
     string httpHost;
-    /*目标文件状态，是否是目录，是否可读，文件大小*/
+    /* 目标文件状态，是否是目录，是否可读，文件大小 */
 	struct stat fileStat;
+	/* 解析response的时候保存消息体起始位置 */
+	char *startContent;
 public:
 	Nginx(size_t readBufSize = 2048, size_t writeBufSize = 1024);
 	~Nginx();
 	bool Read();
-	bool ReadHttp();
+	bool ReadHttpRequest();
+	bool ReadHttpResponse();
 	bool ReadProto();
 	bool Write();
 	bool WriteWithoutProto(string &data);
@@ -131,6 +134,7 @@ public:
 	HTTP_CODE DoRequest();
 	/* response */
 	bool WriteHttpResponse();
+	void CacheResponseHeader(HTTP_CODE ret = INTERNAL_ERROR);
 	bool WriteHttpHeader(HTTP_CODE ret);
 	bool AddResponse( const char* format, ... );
 	bool AddStatusLine( int status, const char* title );
@@ -141,6 +145,9 @@ public:
 	bool AddLocation(const char *otherUrl);
     bool AddBlankLine();
 
+    /* 解析服务器发过来的response */
+    bool ParseResponse();
+
 	/* 关于epoll */
 	int SetNoBlocking(int fd);
 	void Addfd2Read();
@@ -148,7 +155,13 @@ public:
 	void Removefd();
 	void SetTimeout(int keepAliveInterval, int activeInterval);
 
+	bool CheckServerClose();
+	bool CheckNginxClose();
 	void CloseSocket();
+	void CloseServer();
+	void CloseNginx();
+	void ClearClient();
+	void ClearSocket();
 	void ClearResponse();
 
 	void AcceptNginx(int sockfd);
