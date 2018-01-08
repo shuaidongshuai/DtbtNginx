@@ -345,7 +345,9 @@ void DtbtNginx::TimeHeapAddRaft(){
 int DtbtNginx::FindClifdBySerfd(int sockfd){
 	for(auto it = sSer2Cli.begin(); it != sSer2Cli.end(); ++it){
 		if(it->first == sockfd){
-			return it->second;
+			int clifd = it->second;
+			sSer2Cli.erase(it);
+			return clifd;
 		}
 	}
 	return -1;

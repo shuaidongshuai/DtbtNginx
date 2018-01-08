@@ -37,6 +37,7 @@ public:
 	/* 内部的数据 */
 	char *readBuf;//读到的数据
 	size_t readIdx;//读到的位置（可能一次读不全）
+	size_t readSize;//这次读到的大小-readIdx返回就置为0了
 	int readBufSize;//buf大小
 	char *writeBuf;//写的数据--避免没有写完
 	int writeIdx;
@@ -95,10 +96,10 @@ public:
     string httpHost;
     /* 目标文件状态，是否是目录，是否可读，文件大小 */
 	struct stat fileStat;
-	/* 解析response的时候保存消息体起始位置 */
-	char *startContent;
+	/* 解析response的时候 http头的大小*/
+	size_t httpHeaderSize;
 public:
-	Nginx(size_t readBufSize = 2048, size_t writeBufSize = 1024);
+	Nginx(size_t readBufSize = 2048, size_t writeBufSize = 2048);
 	~Nginx();
 	bool Read();
 	bool ReadHttpRequest();
@@ -107,7 +108,7 @@ public:
 	bool Write();
 	bool WriteWithoutProto(string &data);
 	bool WriteProto(int cmd, string &data);
-	void SetReadBuf(int size);
+	void ExpandBuf(char *&srcBuf, size_t srcSize, size_t distSize);
 	/* 收到proto的回调函数 */
 	void VoteRcve(char *proto);
 	void AckVote2LeaderRcve(char *proto);//响应投票1
@@ -119,8 +120,6 @@ public:
 	/* 收到父进程的回调函数 */
 	void SerCon(char *proto);
 	void CliCon(char *proto);
-	/* 服务器响应回来了 */
-	// void Server2NginxRcve(char *proto);
 	/* 主动发送proto的函数 */
 	void AckVote2FollowerSend();//投票响应 只发给一个节点
 
@@ -133,7 +132,6 @@ public:
 	/* do request */
 	HTTP_CODE DoRequest();
 	/* response */
-	bool WriteHttpResponse();
 	void CacheResponseHeader(HTTP_CODE ret = INTERNAL_ERROR);
 	bool WriteHttpHeader(HTTP_CODE ret);
 	bool AddResponse( const char* format, ... );
@@ -147,6 +145,8 @@ public:
 
     /* 解析服务器发过来的response */
     bool ParseResponse();
+	/* 把消息转发给服务器 */
+	void Response2Server(char *buf, int size, bool keepLinger);
 
 	/* 关于epoll */
 	int SetNoBlocking(int fd);

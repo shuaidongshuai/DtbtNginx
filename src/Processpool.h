@@ -300,127 +300,113 @@ void Processpool::runChild() {
 				}
 			}
 			/* 服务器响应回来了 */
-			else if(!dbNginx->mSerfdName[sockfd].empty() && events[i].events & EPOLLIN){
-				LOG(DEBUG) << "服务器响应来到 fd=" << sockfd;
-				if(nginxs[sockfd].sockfd == -1){
+			else if(!dbNginx->mSerfdName[sockfd].empty() && (events[i].events & EPOLLIN)){
+				// LOG(DEBUG) << "服务器响应来到 fd=" << sockfd;
+				if(nginxs[sockfd].contentLength == -1){
             		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
             		continue;
             	}
-				//先读完请求
-				if(!nginxs[sockfd].ReadHttpResponse()){
-					nginxs[sockfd].Addfd2Read();
-					continue;
-				}
-				if(-1 == nginxs[sockfd].sockfd){
-					continue;
-				}
-				int readSize = nginxs[sockfd].readIdx;
-				nginxs[sockfd].readIdx = 0;
-				/* 直接发给client */
-            	int clifd = dbNginx->FindClifdBySerfd(sockfd);
-            	if(-1 == clifd){
-            		LOG(WARNING) << "找不到client serfd=" << sockfd;
-            		continue;
+            	while(1){
+            		//先读完请求
+					if(!nginxs[sockfd].ReadHttpResponse()){
+						nginxs[sockfd].Addfd2Read();
+						break;
+					}
+					if(-1 == nginxs[sockfd].sockfd){
+						break;
+					}
+					int readSize = nginxs[sockfd].readSize;
+					/* 直接发给client */
+	            	int clifd = dbNginx->FindClifdBySerfd(sockfd);
+	            	if(-1 == clifd){
+	            		LOG(WARNING) << "找不到client, serfd=" << sockfd;
+	            		break;
+	            	}
+
+	            	LOG(DEBUG) << "response send to clifd=" << clifd << " size=" << readSize;
+	            	
+					string data = string(nginxs[sockfd].readBuf, readSize);
+					if(!nginxs[clifd].WriteWithoutProto(data)) {
+						nginxs[clifd].Addfd2Write();
+					}
+					/* 有可能读到的数据超过了一次响应 */
+					if(nginxs[sockfd].readIdx > 0){
+						memmove(nginxs[sockfd].readBuf, nginxs[sockfd].readBuf + readSize, nginxs[sockfd].readIdx);
+					}
             	}
-            	dbNginx->sSer2Cli.pop_front();
-
-            	LOG(DEBUG) << "response send to clifd=" << clifd;
-
-			    if(nginxs[clifd].WriteHttpResponse()){
-			    	nginxs[clifd].Addfd2Read();
-			    	/* 注意：
-			    	在这里关闭并不是很好，应该每次写都进行判断，为了不让代码变复杂就放在这里了
-			    	*/
-			    	if(!nginxs[clifd].keepLinger)
-			    		nginxs[clifd].CloseSocket();	
-			    }
-			    else{
-			    	nginxs[sockfd].Addfd2Write();
-			    }
 			}
 			/* 客服端请求来到 */
 			else if( events[i].events & EPOLLIN ) {
-				// LOG(DEBUG) << "客服端请求来到 fd=" << sockfd;
+				LOG(DEBUG) << "客服端请求来到 fd=" << sockfd;
 				if(nginxs[sockfd].sockfd == -1) {
             		LOG(ERROR) << "write sockfd had close fd=" << sockfd;
             		continue;
             	}
-				//先读完请求
-				if(!nginxs[sockfd].ReadHttpRequest()){
-					nginxs[sockfd].Addfd2Read();
-					continue;
-				}
-				if(-1 == nginxs[sockfd].sockfd){
-					continue;
-				}
-				int readSize = nginxs[sockfd].readIdx;
-				nginxs[sockfd].readIdx = 0;
-
-				/* web服务器模式 */
-				if(dbNginx->nginxMode == WEB){
-				    /* 正真的写回 client */
-				    if(nginxs[sockfd].WriteHttpResponse()){
-				    	nginxs[sockfd].Addfd2Read();
-				    	/* 注意：
-				    	在这里关闭并不是很好，应该每次写都进行判断，为了不让代码变复杂就放在这里了
-				    	*/
-				    	if(!nginxs[sockfd].keepLinger)
-				    		nginxs[sockfd].CloseSocket();	
-				    }
-				    else{
-				    	nginxs[sockfd].Addfd2Write();
-				    }
-				}
-				/* 负载模式 */
-				else if(dbNginx->nginxMode == LOAD){
-					/* 首先尝试连接后台服务器，有些服务器可能还未被连接 */
-					dbNginx->ConServer();
-					/* 采用 Consistent Hash 算法分配给子进程 */
-					string SerName = dbNginx->csshash->getServerName(nginxs[sockfd].clientName);
-					if(SerName.empty()){
-						nginxs[sockfd].CacheResponseHeader();
-						if(nginxs[sockfd].WriteHttpResponse()){
-					    	nginxs[sockfd].Addfd2Read();
-					    	/* 注意：
-					    	在这里关闭并不是很好，应该每次写都进行判断，为了不让代码变复杂就放在这里了
-					    	*/
-					    	if(!nginxs[sockfd].keepLinger)
-					    		nginxs[sockfd].CloseSocket();	
+            	while(1){
+            		if(!nginxs[sockfd].ReadHttpRequest()){
+						nginxs[sockfd].Addfd2Read();
+						break;
+					}
+					if(-1 == nginxs[sockfd].sockfd){
+						break;
+					}
+					int readSize = nginxs[sockfd].readSize;
+					/* web服务器模式 */
+					if(dbNginx->nginxMode == WEB){
+					    /* 正真的写回 client */
+					    if(!nginxs[sockfd].Write()){
+					    	nginxs[sockfd].Addfd2Write();
 					    }
-						LOG(WARNING) << "all server dont alive";
-						continue;
 					}
-					int serverfd = dbNginx->mSerNamefd[SerName];
-					if(serverfd <= 0){
-						LOG(ERROR) << "server dont alive : " << SerName;
-						continue;
-					}
-					/* 进行会话保持 */
-					int &serfd = dbNginx->keepSession[SUBMIT][sockfd];
-					if(0 == serfd){
-						serfd = serverfd;
-					}
-					else if(serfd != serverfd){
-						LOG(WARNING) << "发生节点迁移：" << nginxs[sockfd].clientName << "->" 
-							<< nginxs[serfd].clientName	<< " change to ->" << SerName;
-						serfd = serverfd;
-					}
-					dbNginx->sSer2Cli.push_back(make_pair(serverfd, sockfd));
+					/* 负载模式 */
+					else if(dbNginx->nginxMode == LOAD){
+						/* 首先尝试连接后台服务器，有些服务器可能还未被连接 */
+						dbNginx->ConServer();
+						/* 采用 Consistent Hash 算法分配给子进程 */
+						string SerName = dbNginx->csshash->getServerName(nginxs[sockfd].clientName);
+						if(SerName.empty()){
+							nginxs[sockfd].CacheResponseHeader();
+							if(!nginxs[sockfd].Write()){
+								nginxs[sockfd].Addfd2Write();
+						    }
+							LOG(WARNING) << "all server dont alive";
+							break;
+						}
+						int serverfd = dbNginx->mSerNamefd[SerName];
+						if(serverfd <= 0){
+							LOG(ERROR) << "server dont alive : " << SerName;
+							break;
+						}
+						/* 进行会话保持 */
+						int &serfd = dbNginx->keepSession[SUBMIT][sockfd];
+						if(0 == serfd){
+							serfd = serverfd;
+						}
+						else if(serfd != serverfd){
+							LOG(WARNING) << "发生节点迁移：" << nginxs[sockfd].clientName << "->" 
+								<< nginxs[serfd].clientName	<< " change to ->" << SerName;
+							serfd = serverfd;
+						}
+						dbNginx->sSer2Cli.push_back(make_pair(serverfd, sockfd));
 
-					/* 发给服务器 */
-					string data = string(nginxs[sockfd].readBuf, readSize);
-                	if(nginxs[serverfd].WriteWithoutProto(data)) {
-                		nginxs[serverfd].Addfd2Read();
-               		}
-               		else{
-               			nginxs[serverfd].Addfd2Write();
-               		}
-               		// LOG(DEBUG) << "data:" << data << " size=" << data.size();
-               		LOG(DEBUG) << "client -> server : " << nginxs[sockfd].clientName << " -> " << nginxs[serverfd].clientName;
-				}
-				else{
-					LOG(ERROR) << "nginxModee = " << dbNginx->nginxMode;
-				}
+						/* 发给服务器 */
+						nginxs[serverfd].Response2Server(nginxs[sockfd].readBuf, readSize, nginxs[sockfd].keepLinger);
+						/* 有可能读到的数据超过了一次响应 */
+						if(nginxs[sockfd].readIdx > 0){
+							memmove(nginxs[sockfd].readBuf, nginxs[sockfd].readBuf + readSize, nginxs[sockfd].readIdx);
+						}
+	               		LOG(DEBUG) << "client -> server : " << sockfd << " -> " << serverfd;
+					}
+					else{
+						LOG(ERROR) << "nginxModee = " << dbNginx->nginxMode;
+					}
+            	}
+            	
+			}
+			else if( events[i].events & EPOLLOUT ) {
+				if(!nginxs[sockfd].Write()) {
+					nginxs[sockfd].Addfd2Write();
+           		}
 			}
 		}
 	}
@@ -476,7 +462,6 @@ void Processpool::runParent() {
 	/* 将子进程添加到ConsistentHash */
 	for(int i = 0; i < processNumber; ++i){
 		nginxs[subProcess[i].pipefd[0]].sockfd = subProcess[i].pipefd[0];
-		// LOG(DEBUG) << "subProcess[i].pipfd[0] = " << subProcess[i].pipefd[0];
 		/* Addfd2Read useless for The current program, child dont send to father */
 		// [subProcess[i].pipefd[0]].Addfd2Read();
 	}
@@ -511,13 +496,14 @@ void Processpool::runParent() {
 	dbNginx->TimeHeapAdd(2000);//心跳的间隔为2秒
 	dbNginx->TimeHeapAddRaft();
 
-	/* 一启动就会发起vote，让所有节点都知道自己的name */
+	/* 一启动就会发起vote，让所有节点都知道自己的name，这是必须的不然小概率选不出主 */
 	dbNginx->VoteSend();
+	dbNginx->status = CANDIDATE;
 	
 	while( ! stop )	{
 		number = epoll_wait( epollfd, events, MAX_MAIN_PROCESS_EVENT, dbNginx->TimeHeapGet());
 		if ( ( number < 0 ) && ( errno != EINTR ) ) {
-        	LOG(ERROR) << "epoll_wait < 0";
+        	LOG(ERROR) << "epoll_wait < 0  errno=" << errno;
         	break;
         }
 		/* timeout */
@@ -532,8 +518,8 @@ void Processpool::runParent() {
 				dbNginx->status = FOLLOWER;
 				dbNginx->version[SUBMIT] = 0;//提交版本改为0 用来区别是否投票给别人了
 				dbNginx->leaderName[SUBMIT].clear();
-				// dbNginx->TimeHeapDel();	//如果要加的话 注意：在candidate状态变为Leader，del两次
-				// dbNginx->TimeHeapAddRaft();//但是没有太大必要，选举能在极短的时间选出来
+				dbNginx->TimeHeapDel();
+				dbNginx->TimeHeapAddRaft();
 			}
 		}
 
@@ -544,7 +530,7 @@ void Processpool::runParent() {
 		for(int i = 0; i < number; i++)	{
 			sockfd = ((Nginx *)events[i].data.ptr)->sockfd;
 			/* 新的客服端到来 */
-			if(sockfd == dbNginx->lisClifd) {
+			if(sockfd == dbNginx->lisClifd && ( events[i].events & EPOLLIN )) {
 				//采用 RR 算法将其分配给一个子进程处理
                 int i =  sub_process_counter;
                 do {
@@ -567,29 +553,20 @@ void Processpool::runParent() {
 				if(!nginxs[subProcess[i].pipefd[0]].WriteProto(CliConNo, data)){
 					nginxs[subProcess[i].pipefd[0]].Addfd2Write();
 				}
-                // LOG(DEBUG) << "client request send to child " << i;
+                LOG(DEBUG) << "client request send to child " << i;
 			}
 			/* 服务器连接 */
-			else if(sockfd == dbNginx->lisSerfd){
+			else if(sockfd == dbNginx->lisSerfd && ( events[i].events & EPOLLIN )){
 				while((connfd = accept( dtbtfd, (struct sockaddr*)&client_addr, &cliAddrLen)) > 0) {
 					ipStr = string(inet_ntoa(client_addr.sin_addr));
 					portStr = to_string(ntohs(client_addr.sin_port));
-					/* 让所有进程都去连接这个server*/
-					HostName hm;
-					string data;
-					for(int i = 0; i < processNumber; ++i){
-						hm.set_ip(ipStr);
-						hm.set_port(atoi(portStr.c_str()));
-						hm.SerializeToString(&data);
-						if(!nginxs[subProcess[i].pipefd[0]].WriteProto(SerConNo, data)){
-							nginxs[subProcess[i].pipefd[0]].Addfd2Write();
-						}
-					}
+					/* 让某个进程都去连接这个server */
+					//because I dont use it, so waiting for you to complite
 				}
                 LOG(DEBUG) << "server request to child " << i;
 			}
 			/* 集群 connect */
-			else if(sockfd == dtbtfd){
+			else if(sockfd == dtbtfd && ( events[i].events & EPOLLIN )){
 				while((connfd = accept( dtbtfd, (struct sockaddr*)&client_addr, &cliAddrLen)) > 0) {
 					nginxs[connfd].AcceptNginx(connfd);
 				}
@@ -603,7 +580,7 @@ void Processpool::runParent() {
 				}
 				for( int i = 0; i < ret; ++i ) {
 					// LOG(DEBUG) << "parent recv a signal:" << sigPipefd[i];
-					//如果进程池中第i个子进程退出了，
+					//如果进程池中第i个子进程退出了
 					//则主进程关闭通信管道，并设置相应的pid为-1，以标记该子进程已退出
 					switch( signals[i] ) {
 						case SIGCHLD:
@@ -652,29 +629,18 @@ void Processpool::runParent() {
 				}
 			}
 			/* 集群消息 */
-			else if(sockfd > 0 && sockfd < MAX_MAIN_PROCESS_EVENT + 1){
+			else if(sockfd > 0 && sockfd < MAX_MAIN_PROCESS_EVENT + 1 && ( events[i].events & EPOLLIN )){
 				if( events[i].events & ( EPOLLRDHUP | EPOLLHUP | EPOLLERR ) )  {
 	                nginxs[sockfd].CloseSocket();
 	            }
-	            //写事件
-	            else if( events[i].events & EPOLLOUT ) {
-	            	if(nginxs[sockfd].sockfd == -1) {
-	            		LOG(ERROR) << "write sockfd had close fd=" << sockfd;
-	            	}
-	                //能进入到这里面说明已经监听写了，没有写完也不用再监听写了
-	                else if(nginxs[sockfd].Write()) {
-	                	//如果已经写完了 那么重新监听read
-	                	nginxs[sockfd].Addfd2Read();
-	                }
-	            }
-	            //读事件
-	            else if( events[i].events & EPOLLIN ){
-	            	if(nginxs[sockfd].sockfd == -1){
-	            		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
-	            	}
-					else if(nginxs[sockfd].ReadProto()){
-					}
-	            }
+            	if(nginxs[sockfd].sockfd == -1){
+            		LOG(ERROR) << "Read sockfd had close fd=" << sockfd;
+            	}
+				else if(nginxs[sockfd].ReadProto()){
+				}
+			}
+			else if( events[i].events & EPOLLOUT ) {
+				nginxs[sockfd].Write();
 			}
 			else{
 				LOG(ERROR) << "epoll socket = " << sockfd;

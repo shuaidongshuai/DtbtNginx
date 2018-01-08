@@ -1,0 +1,150 @@
+[INFO | 2017-12-30 18:29:29,149] localhost 9001not vote for localhost 9001
+[INFO | 2017-12-30 18:29:29,606] become a Leader
+[INFO | 2017-12-30 18:29:29,606] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 18:29:43,620] kill all the clild now
+[INFO | 2017-12-30 18:29:43,941] child close 0
+[INFO | 2017-12-30 18:29:46,499] localhost 9001 is survived
+[INFO | 2017-12-30 18:29:46,500] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 18:31:29,980] 客服端异常退出 fd=16
+[INFO | 2017-12-30 18:34:12,641] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:34:16,006] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:36:37,953] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:36:41,532] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:51:46,390] kill all the clild now
+[INFO | 2017-12-30 18:51:48,489] kill all the clild now
+[INFO | 2017-12-30 18:51:49,002] child close 0
+[INFO | 2017-12-30 18:51:49,010] DtbtNginx : localhost 9001 close
+[INFO | 2017-12-30 18:52:06,760] child close 0
+[INFO | 2017-12-30 18:52:51,978] become a Leader
+[INFO | 2017-12-30 18:52:51,980] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 18:53:03,812] kill all the clild now
+[INFO | 2017-12-30 18:53:04,116] child close 0
+[INFO | 2017-12-30 18:53:05,935] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 18:53:05,936] become a Leader
+[INFO | 2017-12-30 18:53:43,560] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:53:47,073] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:56:24,648] kill all the clild now
+[INFO | 2017-12-30 18:56:24,857] child close 0
+[INFO | 2017-12-30 18:56:24,863] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 18:56:25,133] 发送失败
+[INFO | 2017-12-30 18:57:15,698] become a Leader
+[INFO | 2017-12-30 18:57:15,699] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 18:57:23,814] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:57:26,996] 客服端正常退出 fd=16
+[INFO | 2017-12-30 18:57:53,876] 客服端正常退出 fd=22
+[INFO | 2017-12-30 18:57:53,881] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:06:42,776] kill all the clild now
+[INFO | 2017-12-30 19:06:43,070] child close 0
+[INFO | 2017-12-30 19:06:43,080] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:06:43,298] 发送失败
+[INFO | 2017-12-30 19:07:28,727] localhost 9000not vote for localhost 9000
+[INFO | 2017-12-30 19:07:29,108] become a Leader
+[INFO | 2017-12-30 19:07:29,109] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 19:07:36,259] 客服端正常退出 fd=16
+[INFO | 2017-12-30 19:12:16,978] kill all the clild now
+[INFO | 2017-12-30 19:12:17,225] child close 0
+[INFO | 2017-12-30 19:12:17,232] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:12:17,526] 发送失败
+[INFO | 2017-12-30 19:13:00,394] become a Leader
+[INFO | 2017-12-30 19:13:00,397] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 19:20:39,936] kill all the clild now
+[INFO | 2017-12-30 19:20:40,221] child close 0
+[INFO | 2017-12-30 19:20:40,228] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:20:40,476] 发送失败
+[INFO | 2017-12-30 19:21:21,418] localhost 9000not vote for localhost 9000
+[INFO | 2017-12-30 19:21:21,757] become a Leader
+[INFO | 2017-12-30 19:21:21,758] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 19:22:20,669] 客服端正常退出 fd=18
+[INFO | 2017-12-30 19:22:20,689] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:24:02,724] 客服端正常退出 fd=17
+[INFO | 2017-12-30 19:24:02,726] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 19:24:50,147] 客服端正常退出 fd=16
+[INFO | 2017-12-30 19:28:35,237] 客服端正常退出 fd=17
+[INFO | 2017-12-30 19:28:35,250] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 19:29:22,158] 发送失败
+[INFO | 2017-12-30 19:29:22,159] 客服端正常退出 fd=18
+[INFO | 2017-12-30 19:29:22,160] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:29:25,625] 发送失败
+[INFO | 2017-12-30 19:30:00,471] child close 0
+[INFO | 2017-12-30 19:30:00,485] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:30:00,733] 发送失败
+[INFO | 2017-12-30 19:30:18,465] kill all the clild now
+[INFO | 2017-12-30 19:30:35,003] child close 0
+[INFO | 2017-12-30 19:31:31,694] localhost 9001not vote for localhost 9001
+[INFO | 2017-12-30 19:31:32,093] become a Leader
+[INFO | 2017-12-30 19:31:32,094] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 19:31:46,453] 发送失败
+[INFO | 2017-12-30 19:31:46,477] 客服端正常退出 fd=16
+[INFO | 2017-12-30 19:32:10,011] 客服端正常退出 fd=20
+[INFO | 2017-12-30 19:32:10,013] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 19:32:38,790] 客服端正常退出 fd=21
+[INFO | 2017-12-30 19:32:38,797] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:33:23,471] child close 0
+[INFO | 2017-12-30 19:33:24,014] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:33:24,379] 发送失败
+[INFO | 2017-12-30 19:40:20,477] localhost 9000 become a Leader, I am a follower
+[INFO | 2017-12-30 19:40:20,478] become a Leader
+[INFO | 2017-12-30 19:40:29,007] 客服端正常退出 fd=18
+[INFO | 2017-12-30 19:40:29,138] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:40:32,282] 客服端正常退出 fd=18
+[INFO | 2017-12-30 19:40:32,286] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:40:53,041] child close 0
+[INFO | 2017-12-30 19:40:53,147] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:40:53,301] 发送失败
+[INFO | 2017-12-30 19:44:29,270] localhost 9000not vote for localhost 9000
+[INFO | 2017-12-30 19:44:29,682] become a Leader
+[INFO | 2017-12-30 19:44:29,685] localhost 9001 become a Leader, I am a follower
+[INFO | 2017-12-30 19:44:38,698] 客服端正常退出 fd=18
+[INFO | 2017-12-30 19:44:38,702] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 19:44:54,170] 发送失败
+[INFO | 2017-12-30 19:45:08,274] child close 0
+[INFO | 2017-12-30 19:45:08,655] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 19:53:45,837] localhost 9000 is survived
+[INFO | 2017-12-30 19:53:45,840] localhost 9001 become a Leader, I am a follower
+[INFO | 2017-12-30 19:54:16,054] 客服端正常退出 fd=16
+[INFO | 2017-12-30 19:54:19,083] child close 0
+[INFO | 2017-12-30 19:54:19,101] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 20:03:40,455] localhost 9000 is survived
+[INFO | 2017-12-30 20:03:40,458] localhost 9001 become a Leader, I am a follower
+[INFO | 2017-12-30 20:03:44,702] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:03:46,179] child close 0
+[INFO | 2017-12-30 20:03:46,184] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 20:14:51,426] localhost 9000 is survived
+[INFO | 2017-12-30 20:14:51,432] localhost 9001 become a Leader, I am a follower
+[INFO | 2017-12-30 20:15:01,252] 客服端正常退出 fd=18
+[INFO | 2017-12-30 20:15:01,258] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 20:15:01,261] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:15:06,437] 客服端正常退出 fd=18
+[INFO | 2017-12-30 20:15:06,440] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 20:15:17,042] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:15:17,136] 客服端正常退出 fd=18
+[INFO | 2017-12-30 20:15:17,141] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 20:15:20,838] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:15:20,981] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:15:21,002] 客服端正常退出 fd=17
+[INFO | 2017-12-30 20:15:21,007] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 20:15:21,793] 客服端正常退出 fd=19
+[INFO | 2017-12-30 20:15:21,794] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 20:15:21,797] 客服端正常退出 fd=17
+[INFO | 2017-12-30 20:16:24,808] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:16:28,287] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:16:28,320] 客服端正常退出 fd=17
+[INFO | 2017-12-30 20:16:28,323] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 20:16:28,966] 客服端正常退出 fd=18
+[INFO | 2017-12-30 20:16:28,998] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 20:16:29,113] 客服端正常退出 fd=17
+[INFO | 2017-12-30 20:19:09,189] kill all the clild now
+[INFO | 2017-12-30 20:19:09,420] child close 0
+[INFO | 2017-12-30 20:19:09,426] DtbtNginx : localhost 9000 close
+[INFO | 2017-12-30 20:19:17,234] kill all the clild now
+[INFO | 2017-12-30 20:19:30,929] child close 0
+[INFO | 2017-12-30 20:20:18,234] localhost 9001not vote for localhost 9001
+[INFO | 2017-12-30 20:20:18,767] localhost 9001 become a Leader, I am a follower
+[INFO | 2017-12-30 20:20:18,768] become a Leader
+[INFO | 2017-12-30 20:20:25,934] 客服端正常退出 fd=16
+[INFO | 2017-12-30 20:20:25,954] 客服端正常退出 fd=18
+[INFO | 2017-12-30 20:20:25,958] server : 139.199.26.222 11002 close
+[INFO | 2017-12-30 20:20:45,037] 客服端正常退出 fd=18
+[INFO | 2017-12-30 20:30:00,062] 客服端正常退出 fd=17
+[INFO | 2017-12-30 20:30:00,063] server : 139.199.26.222 11001 close
+[INFO | 2017-12-30 20:30:04,691] 客服端正常退出 fd=16

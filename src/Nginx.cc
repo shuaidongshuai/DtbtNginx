@@ -33,6 +33,7 @@ Nginx::Nginx(size_t readBufSize, size_t writeBufSize)
 	dbNginx = Singleton<DtbtNginx>::getInstence();
 	readBuf = new char[readBufSize];
 	writeBuf = new char[writeBufSize];
+	fileStat.st_size = 0;
 	/* 注册回调函数 */
 	callBack[VoteNo] = &Nginx::VoteRcve;
 	callBack[AckVote2LeaderNo] = &Nginx::AckVote2LeaderRcve;
@@ -54,11 +55,15 @@ Nginx::~Nginx(){
 	delete readBuf;
 }
 
-void Nginx::SetReadBuf(int size){
-	char *newBuf = new char[size];
-	char *temp = readBuf;
-	readBuf = newBuf;
-	readBufSize = size;
+void Nginx::ExpandBuf(char *&srcBuf, size_t srcSize, size_t distSize){
+	/* 最多申请100M */
+	if(srcSize > distSize || distSize > 1024 * 1024 * 100){
+		LOG(WARNING) << "Expand buf src=" << srcSize << " dis=" << distSize;
+		return;
+	}
+	char *temp = srcBuf;
+	srcBuf = new char[distSize];
+	memmove(srcBuf, temp, srcSize);
 	delete temp;
 }
 /* 返回true都是异常 */
@@ -85,12 +90,23 @@ bool Nginx::ReadHttpRequest(){
 			return true;
 		}
 		readIdx += nread;
-
+		/* 扩容 */
+		if(readIdx == readBufSize){
+			readBufSize *= 2;
+			ExpandBuf(readBuf, readIdx, readBufSize);
+			LOG(DEBUG) << "ReadHttpRequest扩容 size=" << readBufSize;
+		}
 		/* 读一次就解析一次 */
 		HTTP_CODE read_ret = ParseRequest();
 	    if ( read_ret != NO_REQUEST ) {
+	    	/* 记录上一条 */
+	    	readSize = startLine + contentLength;
+	    	readIdx -= readSize;
+	    	LOG(DEBUG) << "ParseRequest success readSize=" << readSize << " readIdx=" << readIdx;
 	    	/* 缓存响应头部 */
-	    	CacheResponseHeader(read_ret);
+	    	if(dbNginx->nginxMode == WEB){
+	    		CacheResponseHeader(read_ret);
+	    	}
 	    	return true;
 	    }
 	}
@@ -120,9 +136,18 @@ bool Nginx::ReadHttpResponse(){
 			return true;
 		}
 		readIdx += nread;
-
+		/* 扩容 */
+		if(readIdx == readBufSize){
+			readBufSize *= 2;
+			ExpandBuf(readBuf, readIdx, readBufSize);
+			LOG(DEBUG) << "ReadHttpRequest扩容 size=" << readBufSize;
+		}
 		/* 读一次就解析一次 */
 	    if (ParseResponse()) {
+	    	readSize = httpHeaderSize + contentLength;
+	    	readIdx -= readSize;
+	    	httpHeaderSize = contentLength = 0;
+	    	LOG(DEBUG) << "ParseResponse success readSize=" << readSize << " readIdx=" << readIdx;
 	    	return true;
 	    }
 	}
@@ -267,6 +292,7 @@ Nginx::HTTP_CODE Nginx::ParseRequestHeader(char *text){
         if ( strncasecmp( text, "keep-alive", 10) == 0 ) {
             keepLinger = true;
         }
+         // LOG(DEBUG) << "keepLinger = " << keepLinger;
     }
     else if ( strncasecmp( text, "Content-Length:", 15 ) == 0 ) {
         text += 15;
@@ -342,68 +368,6 @@ Nginx::HTTP_CODE Nginx::DoRequest(){
 
     LOG(DEBUG) << clientName << " 请求的文件:" << fileName << " size=" << fileStat.st_size;
     return FILE_REQUEST;
-}
-
-bool Nginx::WriteHttpResponse(){
-	/* 先写头信息 */
-	int n;
-	while (1){
-		n = write(sockfd, writeBuf + writeIdx, writeLen - writeIdx);
-		if ( n <= -1 ) {
-			if( errno == EAGAIN ) {
-				LOG(DEBUG) << "当前不可写，继续监听写事件";
-				return false;
-			}
-			LOG(INFO) << "发送失败";
-			return true;
-		}
-		writeIdx += n;
-		if(writeIdx == writeLen){
-			break;
-		}
-		else if(writeIdx >  writeLen){
-			LOG(WARNING) << "WriteHttpResponse writeIdx >  writeLen " << writeIdx - writeLen;
-			return true;
-		}
-	}
-	if(fileName.empty()){
-		return true;
-	}
-	/* 然后写文件 - 我直接用sendfile发送 - 将来如果性能差 - 改为保存到内存 */
-	int fd = open(fileName.c_str(), O_RDONLY);
-	if(-1 == fd) {
-		LOG(WARNING) << "WriteHttpResponse open " << fileName << " error";
-		return true;
-	}
-	if(writeIdx == writeLen){
-		writeLen += fileStat.st_size;
-	}
-	off_t idx = writeIdx - (writeLen - fileStat.st_size);
-	while (1){
-		// ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
-		n = sendfile(sockfd, fd, &idx, writeLen - writeIdx);
-		if ( n <= -1 ) {
-			if( errno == EAGAIN ) {
-				LOG(DEBUG) << "当前不可写，继续监听写事件";
-				return false;
-			}
-			LOG(INFO) << "发送失败";
-			return true;
-		}
-		writeIdx += n;
-		if(writeIdx == writeLen){
-			break;
-		}
-		else if(writeIdx >  writeLen){
-			LOG(WARNING) << "WriteHttpResponse writeIdx >  writeLen " << writeIdx - writeLen;
-			return true;
-		}
-	}
-	writeLen = 0;
-	writeIdx = 0;
-	close(fd);
-	//LOG(DEBUG) << "写:" << writeBuf << "-" << writeLen << "字节";
-	return true;
 }
 
 /* 缓存响应 行 头 体 */
@@ -485,12 +449,14 @@ bool Nginx::WriteHttpHeader(HTTP_CODE ret){
     return true;
 }
 bool Nginx::AddResponse( const char* format, ... ) {
-    if( writeLen >= writeBufSize ) {
-        return false;
-    }
+	/* 扩容 */
+	if(2 * writeLen > writeBufSize){
+		writeBufSize *= 2;
+		ExpandBuf(writeBuf, writeLen, writeBufSize);
+	}
     va_list arg_list;
     va_start( arg_list, format );
-    int len = vsnprintf( writeBuf + writeLen, writeBufSize - 1 - writeLen, format, arg_list );
+    int len = vsnprintf( writeBuf + writeLen, writeBufSize - writeLen, format, arg_list );
     if( len >= ( writeBufSize - 1 - writeLen ) ) {
         return false;
     }
@@ -529,28 +495,47 @@ bool Nginx::AddBlankLine() {
 }
 //添加请求正文(用于错误响应)
 bool Nginx::AddContent( const char* content ) {
-    return AddResponse( "<html><body><p>%s</p></body></html>", content );
+    return AddResponse( "%s", content );
 }
-/* 由于服务器是我们可以掌控的，不会发一些不合法的东西，所以就简单的解析就好 */
+/* 简单的解析就好 */
 bool Nginx::ParseResponse() {
-    if(startContent == NULL){
-    	startContent = strstr(readBuf, "\r\n\r\n");
+    if(0 == httpHeaderSize){
+    	char *startContent = strstr(readBuf, "\r\n\r\n");
     	startContent += 4;
     	char *subStr = strstr(readBuf, "Content-Length: ");
     	if(NULL == subStr){
-    		LOG(ERROR) << "response no Content-Length:";
-    		return true;//消息有问题，直接发了，不然一直在这里。这种情况是不应该发生的
+    		//LOG(ERROR) << "response no Content-Length:";
+    		contentLength = 0;
     	}
-    	subStr += strlen("Content-Length: ");
-    	char *temp = strpbrk( subStr, "\r\n" );
-    	stringstream oss;
-    	oss << string(subStr, temp - subStr);
-    	oss >> contentLength;
+    	else{
+	    	subStr += strlen("Content-Length: ");
+	    	char *temp = strpbrk( subStr, "\r\n" );
+	    	stringstream oss;
+	    	oss << string(subStr, temp - subStr);
+	    	oss >> contentLength;
+    	}
+	    httpHeaderSize = startContent - readBuf;
     }
+    LOG(DEBUG) << "readIdx=" << readIdx << " startLen=" << httpHeaderSize << " contentLength=" << contentLength;
     /* 一直要读完 */
-    return readIdx >= ((startContent - readBuf) + contentLength) ? true : false;
+    return readIdx >= (httpHeaderSize + contentLength) ? true : false;
 }
-
+/* 需要加上keepAlive */
+void Nginx::Response2Server(char *buf, int size, bool keepLinger){
+	string data;
+	if(keepLinger){
+		data = string(buf, size);
+	}
+	else{
+		data = string(buf, size - contentLength - 2);
+		data += "Connection: keep-alive\r\n";
+		data += string(buf + size - contentLength - 2, contentLength + 2);
+	}
+	if(!WriteWithoutProto(data)) {
+		Addfd2Write();
+	}
+	// LOG(DEBUG) << "data:" << data << "size=" << data.size();
+}
 /*
 所有数据都是 cmd+len+protobuf  要按照这个来读 cmd 和 len 都是 int
 返回false说明没有读完，接着读。true说明不需要继续读了 
@@ -577,6 +562,11 @@ bool Nginx::ReadProto(){
 				return true;
 			}
 			readIdx += nread;
+			/* 扩容 */
+			if(readIdx == readBufSize){
+				readBufSize *= 2;
+				ExpandBuf(readBuf, readIdx, readBufSize);
+			}
 		}
 		//读protobuf
 		int cmd = *(int *)readBuf;
@@ -606,6 +596,10 @@ bool Nginx::ReadProto(){
 				return true;
 			}
 			readIdx += nread;
+			if(readIdx == readBufSize){
+				readBufSize *= 2;
+				ExpandBuf(readBuf, readIdx, readBufSize);
+			}
 		}
 		// LOG(DEBUG) << "读到" << clientName << "：" << readBuf << "---" << readIdx << "字节";
 		//执行回调函数
@@ -616,45 +610,82 @@ bool Nginx::ReadProto(){
 	readIdx = 0;
 	return true;
 }
+
 /* 还需要监听就返回false */
 bool Nginx::Write(){
 	int n;
-	while (1){
+	while (writeIdx < writeLen){
 		n = write(sockfd, writeBuf + writeIdx, writeLen - writeIdx);
 		if ( n <= -1 ) {
 			if( errno == EAGAIN ) {
 				LOG(DEBUG) << "当前不可写，继续监听写事件";
 				return false;
 			}
-			LOG(INFO) << "发送失败";
+			LOG(INFO) << "发送失败 sockfd=" << sockfd;
 			return true;
 		}
 		writeIdx += n;
-		if(writeIdx == writeLen){
-			// 写完了要监听读事件
-			Addfd2Read();
-			break;
-		}
-		else if(writeIdx >  writeLen){
+		if(writeIdx >  writeLen){
 			LOG(WARNING) << "Write writeIdx >  writeLen " << writeIdx - writeLen;
 			return true;
 		}
 	}
-	writeLen = 0;
-	writeIdx = 0;
-	//LOG(DEBUG) << "写:" << writeBuf << "-" << writeLen << "字节";
+	/* 下面是为了发送html等文件,使用sendfile而添加的 */
+	if(fileName.empty() && !fileStat.st_size){
+		writeLen = 0;
+		writeIdx = 0;
+		/* 写完了要监听读事件 */
+		Addfd2Read();
+		return true;
+	}
+	/* 然后写文件 - 我直接用sendfile发送 - 将来如果性能差 - 改为保存到内存 */
+	int fd = open(fileName.c_str(), O_RDONLY);
+	if(-1 == fd) {
+		LOG(WARNING) << "WriteHttpResponse open " << fileName << " error";
+		return true;
+	}
+	int allLen = writeLen + fileStat.st_size;
+	off_t idx = writeIdx - writeLen;
+	while (writeIdx < allLen){
+		// ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
+		n = sendfile(sockfd, fd, &idx, allLen - writeIdx);
+		if ( n <= -1 ) {
+			if( errno == EAGAIN ) {
+				// LOG(DEBUG) << "当前不可写，继续监听写事件";
+				return false;
+			}
+			LOG(INFO) << "发送失败 sockfd=" << sockfd;
+			return true;
+		}
+		writeIdx += n;
+		if(writeIdx >  allLen){
+			LOG(WARNING) << "WriteHttpResponse writeIdx >  allLen " << writeIdx - allLen;
+			return true;
+		}
+		LOG(DEBUG) << fileName << " sendfile:" << idx << "字节";
+	}
+
+	close(fd);
+	if(!keepLinger)
+		CloseSocket();
+	else{
+		writeLen = 0;
+		writeIdx = 0;
+		/* 写完了要监听读事件 */
+		Addfd2Read();
+	}
 	return true;
 }
 
 bool Nginx::WriteWithoutProto(string &data){
 	writeLen = data.size();
-	writeIdx = 0;
 	if(writeLen > writeBufSize){
-		delete writeBuf;
-		writeBuf = new char[writeLen + 1];
-		writeBufSize = writeLen;
+		do{
+			writeBufSize *= 2;
+		}while(writeLen > writeBufSize);
+		ExpandBuf(writeBuf, 0, writeBufSize);
 	}
-	strncpy(writeBuf, data.c_str(), writeLen);
+	memmove(writeBuf, data.c_str(), writeLen);//注意不能使用strncpy,因为我们需要copy二进制文件
 	return Write();
 }
 /* 发送protobuf协议 加上包头(cmd + len) */
@@ -663,9 +694,10 @@ bool Nginx::WriteProto(int cmd, string &data){
 	writeLen = 2 * sizeof(int) + len;//注意要修改writeLen
 	writeIdx = 0;//注意要修改writeIdx
 	if(writeLen > writeBufSize){
-		delete writeBuf;
-		writeBuf = new char[writeLen + 1];
-		writeBufSize = writeLen;
+		do{
+			writeBufSize *= 2;
+		}while(writeLen > writeBufSize);
+		ExpandBuf(writeBuf, 0, writeBufSize);
 	}
 	strncpy(writeBuf, (char *)&cmd, sizeof(int));
 	strncpy(writeBuf + sizeof(int), (char *)&len, sizeof(int));
@@ -933,9 +965,9 @@ void Nginx::CliCon(char *proto){
 		return;
 	}
 	struct sockaddr_in clientAddr;
+	socklen_t cliAddrLen;
 	string ipStr, portStr;
 	int connfd;
-	socklen_t cliAddrLen;
 	while((connfd = accept( dbNginx->lisClifd, (struct sockaddr*)&clientAddr, &cliAddrLen)) > 0) {
 		ipStr = string(inet_ntoa(clientAddr.sin_addr));
 		portStr = to_string(ntohs(clientAddr.sin_port));
@@ -954,6 +986,8 @@ void Nginx::CliCon(char *proto){
 int Nginx::SetNoBlocking(int fd) {
 	int old_option = fcntl(fd,F_GETFL);
 	int new_option = old_option | O_NONBLOCK;
+	if(old_option == new_option)
+		return 1;
 	return fcntl(fd, F_SETFL, new_option);//如果出错，所有命令都返回-1
 }
 
@@ -1002,7 +1036,6 @@ void Nginx::Addfd2Write() {
 	else {
 		op = EPOLL_CTL_MOD;
 	}
-	//event.data.fd = sockfd;
 	event.data.ptr = this;
 	event.events = EPOLLOUT | EPOLLET | EPOLLRDHUP;// | EPOLLONESHOT 
 	epoll_ctl(epollfd, op, sockfd, &event);
@@ -1105,13 +1138,14 @@ void Nginx::ClearSocket(){
 
 	checkedIdx = 0;
     startLine = 0;
-    fileName.clear();
     httpVer = NULL;
     contentLength = 0;
     keepLinger = false;
+    fileName.clear();
     httpHost.clear();
     checkState = CHECK_STATE_REQUESTLINE;
-    startContent = NULL;
+    fileStat.st_size = 0;
+    httpHeaderSize = 0;
 }
 
 void Nginx::ClearResponse(){
@@ -1119,10 +1153,9 @@ void Nginx::ClearResponse(){
     startLine = 0;
     httpVer = NULL;
     contentLength = 0;
-    keepLinger = false;
     httpHost.clear();
     checkState = CHECK_STATE_REQUESTLINE;
-    startContent = NULL;
+    httpHeaderSize = 0;
 }
 
 void Nginx::AcceptNginx(int sockfd){
