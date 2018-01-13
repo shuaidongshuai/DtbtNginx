@@ -28,4 +28,4 @@ Raft 和 Consistent Hash进行分布式<br/>
 
 测试:
 ===
-![dong](https://github.com/shuaidong1996/DtbtNginx/tree/master/html/images/webServerTest.png)
+![dong](https://raw.githubusercontent.com/shuaidong1996/DtbtNginx/master/html/images/webServerTest.png)
