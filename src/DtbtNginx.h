@@ -23,9 +23,9 @@
 #include "ReadConf.h"
 using namespace std;
 
-enum STATU{FOLLOWER, CANDIDATE, LEADER};//追随者，候选者，领导者
-enum {ENSURE, SUBMIT};
-enum {WEB, LOAD};
+enum STATU{ FOLLOWER, CANDIDATE, LEADER };//追随者，候选者，领导者
+enum { ENSURE, SUBMIT };
+enum { WEB, LOAD };
 /*
 使用进程池的心得：
 铁了心想用进程池，但是有很多数据需要共享，没办法必须mmap数据到共享区(再仔细想就算不共享也没啥，还节省了锁的开销)
@@ -35,10 +35,10 @@ enum {WEB, LOAD};
 redis的缺点：不能充分发挥多核的优势
 对于redis的这个缺点我进行修改：子进程的数量 = 当后台服务器 / N
 */
-/* 
+/*
 安全问题：
 1.服务器过来连接我没有做安全检查--其实可以用https那样的 密码-秘钥-数字签名
- */
+*/
 class Nginx;
 class ConsistentHash;
 

@@ -1,4 +1,4 @@
-/* protoµÄ»Øµ÷º¯Êý */
+ï»¿/* protoçš„å›žè°ƒå‡½æ•° */
 //inNginx
 enum inNginxNum{
 	VoteNo = 1,				//	Vote
@@ -14,5 +14,5 @@ enum inNginxNum{
 	SerConNo,				//	SerCon
 	CliConNo,				//	CliCon
 
-	// Server2NginxNo,			//	ServerRcve
+	// Server2NginxNo,		//	ServerRcve
 };
