@@ -32,6 +32,7 @@ github: https://github.com/shuaidong1996/Consistent-Hashing
 3.可以尽量减少线程加锁/解锁的影响<br/>
 4.从资源的占有量说比线程池大很多<br/>
 
-测试:
+与Nginx的压力测试:
 ===
+环境：腾讯云 Centos 2.6.32 x86_64 1核 1GB 1Mbps<br/>
 ![dong](https://raw.githubusercontent.com/shuaidong1996/DtbtNginx/master/html/images/webServerTest.png)
