@@ -20,6 +20,11 @@ DtbtNginx根据一个hash算法均衡的负载到后台的几个服务器上，
 Raft 和 Consistent Hash进行分布式<br/>
 自己写的一致性hash算法，用来选择一个后台服务器进程处理<br/>
 
+一致性Hash算法
+---
+默认是一致性hash算法，当然我写的时候做到了可拓展，传进去任何hash算法都行<br/>
+github: https://github.com/shuaidong1996/Consistent-Hashing
+
 使用进程池的好处：
 ---
 1.程序的健壮性很强，一个进程挂了，再创建一个新的就好，不会把整个程序给拖垮<br/>
